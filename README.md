@@ -1,7 +1,6 @@
 # Dropbox for Business local backup tool
 
-`dfb` is a tool to create local backups of
-files from Dropbox for Business.
+`dfb` is a tool to create local backups of files from Dropbox for Business.
 
 It logs into a Dropbox for Business account using the administrator API key
 and can access any user's files.
@@ -10,6 +9,7 @@ and can access any user's files.
 
  * [Python](https://www.python.org/downloads) (tested on CPython 3.4)
  * [Dropbox Python SDK](https://www.dropbox.com/developers/core/sdks/python)
+ * [requests](http://docs.python-requests.org/)
 
 ## Installation
 
@@ -32,7 +32,7 @@ Backup all files since 1 January 2015. Note that dates are expected in ISO
 
 Backup all files up to and including 100 MB in size:
 
-`python dfb.py --maxsize=1 --out="path/to/backup"`
+`python dfb.py --maxsize=100 --out="path/to/backup"`
 
 ## Licence
 
