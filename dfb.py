@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 import json
 import logging
 import os
-from pprint import pprint
 import requests
 import sys
 from queue import Queue, Empty
@@ -100,16 +99,16 @@ def get_members(headers, response=None):
     url = 'https://api.dropbox.com/1/team/members/list'
     members = SetQueue()
     has_more = True
-    cursor = None
+    data = '{}'
 
     while has_more:
-        data = json.dumps({'cursor': cursor}) if cursor else '{}'
         if response is None:
             r = requests.post(url, headers=headers, data=data)
             # Raise an exception if status is not OK
             r.raise_for_status()
             response = r.json()
-            cursor = response['cursor']
+            # Set cursor in the POST data for the next request
+            data = json.dumps({'cursor': response['cursor']})
 
         for member in response['members']:
             prof = member['profile']
@@ -119,6 +118,9 @@ def get_members(headers, response=None):
 
         # Stop looping if no more members are available
         has_more = response['has_more']
+
+        # Clear the response
+        response = None
 
     return members
 
@@ -135,50 +137,55 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
     """
     headers['X-Dropbox-Perform-As-Team-Member'] = member_id
     url = 'https://api.dropbox.com/1/delta'
-
     has_more = True
     data = '{}'
-    count = 0
 
     while has_more:
-        print(count)
-        count += 1
-
         # If ready-made response is not supplied, poll Dropbox
         if response is None:
+            logging.debug('Requesting delta with ' + data)
             r = requests.post(url, headers=headers, data=data)
             # Raise an exception if status is not OK
             r.raise_for_status()
             response = r.json()
-
-            # Set the cursor
+            # Set cursor in the POST data for the next request
             data = json.dumps({'cursor': response['cursor']})
 
         # Iterate items for possible adding to file list
         for unused, entry in response['entries']:
-            paths.put(entry['path'])
-            print(entry['path'])
-            # # Ignore directories
-            # if not entry['is_dir']:
-            #     # Only list files under maxsize
-            #     if entry['bytes'] <= 1e6 * maxsize:
-            #         # Only list those modified since
-            #         if since:
-            #             last_mod = datetime.strptime(entry['modified'],
-            #                                          DATE_FORMAT)
-            #             if last_mod >= since:
-            #                 paths.put(entry['path'])
-            #         else:
-            #             paths.put(entry['path'])
+            logging.debug('Assessing ' + entry['path'])
+
+            # Set queue_this to True if the entry should be downloaded
+            queue_this = False
+
+            # Ignore directories
+            if not entry['is_dir']:
+                # Only list files under maxsize
+                if entry['bytes'] <= 1e6 * maxsize:
+                    # Only list those modified since
+                    if since:
+                        last_mod = datetime.strptime(entry['modified'],
+                                                     DATE_FORMAT)
+                        if last_mod >= since:
+                            queue_this = True
+                    else:
+                        queue_this = True
+
+            if queue_this:
+                logging.info('Queued ' + entry['path'])
+                paths.put(entry['path'])
 
         # Stop loop if no more items are available
         has_more = response['has_more']
+
+        # Clear the response
+        response = None
 
 
 def get_file(headers, path):
     """Return the data for the given file."""
     url = 'https://api-content.dropbox.com/1/files/auto' + path
-    r = requests.post(url, headers=headers, data='{}')
+    r = requests.get(url, headers=headers)
     # Raise an exception if status code is not OK
     r.raise_for_status()
     return r.content

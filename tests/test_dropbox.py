@@ -1,6 +1,7 @@
 """Tests for Dropbox for Business access."""
 
 import argparse
+import json
 from pprint import pprint
 import requests
 
@@ -17,7 +18,7 @@ def parse_args():
 
 
 def post(headers, url, data='{}'):
-    print('Requesting', url)
+    print('Requesting', url, data)
     r = requests.post(url, headers=headers, data=data)
     r.raise_for_status()
     return r.json()
@@ -35,7 +36,15 @@ def main():
     if args.member_id:
         headers['X-Dropbox-Perform-As-Team-Member'] = args.member_id
         pprint(post(headers, 'https://api.dropbox.com/1/account/info'))
-        pprint(post(headers, 'https://api.dropbox.com/1/delta'))
+
+        has_more = True
+        data = '{}'
+
+        while has_more:
+            response = post(headers, 'https://api.dropbox.com/1/delta', data)
+            pprint(response)
+            has_more = response['has_more']
+            data = json.dumps({'cursor': response['cursor']})
 
 
 if __name__ == '__main__':
