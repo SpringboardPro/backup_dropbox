@@ -219,13 +219,7 @@ def main():
         except Empty:
             break
 
-    # while True:
-    #     try:
-    #         logging.debug(paths.get(block=False))
-    #
-    #     except Empty:
-    #         break
-
+    # FIXME: Exit here until get_paths is fixed
     sys.exit(0)
 
     # Create output directory if it does not exist
@@ -235,13 +229,18 @@ def main():
         logging.exception('Error making output directory')
         raise
 
-    # Go through the full list of files, downloading those meeting criteria
+    # Download files in the queue
     # TODO: Downloading files could be paralellised
-    for path in paths:
-        logging.info('Downloading', path)
-        local_path = os.path.join((args.out, path))
-        with open(local_path, 'w') as fout:
-            fout.write(get_file(headers, path))
+    while True:
+        try:
+            path = paths.get(block=False)
+            logging.info('Downloading', path)
+            local_path = os.path.join((args.out, path))
+            with open(local_path, 'w') as fout:
+                fout.write(get_file(headers, path))
+
+        except Empty:
+            break
 
 
 if __name__ == '__main__':
