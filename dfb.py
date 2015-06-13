@@ -6,12 +6,11 @@ See README.md for full instructions.
 
 import argparse
 from datetime import datetime, timezone
-import json
 import logging
 import os
 import requests
 import sys
-from queue import Queue, Empty
+import queue
 
 
 __version__ = '0.1'
@@ -21,7 +20,7 @@ LOGGING_LEVEL = logging.DEBUG
 DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'  # date format used by Dropbox
 
 
-class SetQueue(Queue):
+class SetQueue(queue.Queue):
     """Queue which will not allow equal object to be put more than once."""
 
     def __init__(self, maxsize=0):
@@ -99,22 +98,28 @@ def get_members(headers, response=None):
     url = 'https://api.dropbox.com/1/team/members/list'
     members = SetQueue()
     has_more = True
-    data = '{}'
+    post_data = {}
 
     while has_more:
         if response is None:
-            r = requests.post(url, headers=headers, data=data)
+            r = requests.post(url, headers=headers, json=post_data)
             # Raise an exception if status is not OK
             r.raise_for_status()
+
             response = r.json()
+
             # Set cursor in the POST data for the next request
-            data = json.dumps({'cursor': response['cursor']})
+            # FIXME: fix cursor setting
+            post_data['cursor'] = response['cursor']
 
         for member in response['members']:
-            prof = member['profile']
-            fmt = 'Found {} {}'
-            logging.debug(fmt.format(prof['given_name'], prof['surname']))
-            members.put(prof['member_id'])
+            profile = member['profile']
+            logging.debug('Found {} {}'.format(
+                profile['given_name'],
+                profile['surname'])
+                )
+
+            members.put(profile['member_id'])
 
         # Stop looping if no more members are available
         has_more = response['has_more']
@@ -138,21 +143,24 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
     headers['X-Dropbox-Perform-As-Team-Member'] = member_id
     url = 'https://api.dropbox.com/1/delta'
     has_more = True
-    data = '{}'
+    post_data = {}
 
     while has_more:
         # If ready-made response is not supplied, poll Dropbox
         if response is None:
-            logging.debug('Requesting delta with ' + data)
-            r = requests.post(url, headers=headers, data=data)
+            logging.debug('Requesting delta with {}'.format(post_data))
+            r = requests.post(url, headers=headers, json=post_data)
             # Raise an exception if status is not OK
             r.raise_for_status()
+
             response = r.json()
+
             # Set cursor in the POST data for the next request
-            data = json.dumps({'cursor': response['cursor']})
+            # FIXME: fix cursor setting
+            post_data['cursor'] = response['cursor']
 
         # Iterate items for possible adding to file list
-        for unused, entry in response['entries']:
+        for lowercase_path, entry in response['entries']:
             logging.debug('Assessing ' + entry['path'])
 
             # Set queue_this to True if the entry should be downloaded
@@ -175,7 +183,7 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
                 logging.info('Queued ' + entry['path'])
                 paths.put(entry['path'])
 
-        # Stop loop if no more items are available
+        # Stop looping if no more items are available
         has_more = response['has_more']
 
         # Clear the response
@@ -196,8 +204,7 @@ def main():
 
     # Parse command line arguments
     args = parse_args()
-    headers = {'Content-Type': 'application/json',
-               'Authorization': 'Bearer ' + args.token}
+    headers = {'Authorization': 'Bearer ' + args.token}
 
     # Get a list of Dropbox for Business members
     # This is a single POST request so does not parallelise
@@ -216,7 +223,7 @@ def main():
             logging.debug('Getting paths for ' + member_id)
             get_paths(headers, paths, member_id, args.since)
 
-        except Empty:
+        except queue.Empty:
             break
 
     # FIXME: Exit here until get_paths is fixed
@@ -239,7 +246,7 @@ def main():
             with open(local_path, 'w') as fout:
                 fout.write(get_file(headers, path))
 
-        except Empty:
+        except queue.Empty:
             break
 
 

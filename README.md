@@ -17,22 +17,25 @@ and can access any user's files.
    permission:
    https://www.dropbox.com/developers/business
 
-   You can use the `tools/auth.py` script from the command line to generate an
+   You can use the `auth.py` script from the command line to generate an
    authorization code from Dropbox.
 
-2. A proper setup.py has not yet been written. For now, simply clone the git
-   repository to where you want to run the program.
+2. Clone the git repository and run from the command line as described below.
 
 ## Command line usage
 
-Backup all files since 1 January 2015. Note that dates are expected in ISO
-8601 format:
+To backup all files since 1 January 2015, use:
 
-`python dfb.py --since=2015-01-01 --out="path/to/backup"`
+`python dfb.py --since=2015-01-01 --out="path/to/backup" <token>`
 
-Backup all files up to and including 100 MB in size:
+`token` is the OAuth2 authorisation token received from Dropbox. You can use
+the auth.py utility to help generate this.
 
-`python dfb.py --maxsize=100 --out="path/to/backup"`
+Note that dates are expected in ISO 8601 format.
+
+To backup all files up to and including 100 MB in size:
+
+`python dfb.py --maxsize=100 --out="path/to/backup" <token>`
 
 ## Licence
 
@@ -40,7 +43,7 @@ This project is licensed under the
 [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0), a copy of
 which is included in the LICENSE file.
 
-## Discussion
+## Discussion of dfb implementation
 
 Overall strategy:
 
@@ -57,21 +60,14 @@ Overall strategy:
    content:
    https://www.dropbox.com/developers/core/docs#files-GET
 
-### Assumptions and caveats
 
-- This assumes eventual consistency is ok. That is, there will be some delay.
-  This can be mitigated (only somewhat) by the use of webhooks:
-  https://www.dropbox.com/developers/business#webhooks
+## Contributing to this project
 
-- This assumes that you don’t need to get every single version of every file.
-  That is, there are race conditions possible where when multiple versions of a
-  single file are created quickly, the app will only get the latest version,
-  not interim versions. This can be mitigated by calling /revisions every time
-  a file is modified and downloading each version of the file that the app
-  hasn’t seen. This would add some additional complexity:
-  https://www.dropbox.com/developers/core/docs#revisions
-
-The Dropbox for Business API can certainly be used via Python, but note that
-the official Dropbox Python SDK isn't built to use the Dropbox for Business
-API (it's only designed for the Core API), so you'd either need to modify it
-or call the Dropbox for Business API endpoints directly.
+1. Fork the repository on GitHub.
+2. Create your local clone (`git clone <your_fork_URL>`).
+3. Create your feature branch (`git checkout -b my-new-feature`).
+4. Commit your changes to your local repository
+   (`git commit -am 'Add some feature'`).
+5. Push your local changes to your fork on GitHub
+   (`git push origin my-new-feature`).
+6. Create new Pull Request on GitHub.
