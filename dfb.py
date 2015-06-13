@@ -17,7 +17,9 @@ __version__ = '0.1'
 
 MAXFILESIZE = 100  # Max file size in MB
 LOGGING_LEVEL = logging.DEBUG
-DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'  # date format used by Dropbox
+
+# Date format used by Dropbox https://www.dropbox.com/developers/core/docs
+DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
 
 
 class SetQueue(queue.Queue):
@@ -25,10 +27,12 @@ class SetQueue(queue.Queue):
 
     def __init__(self, maxsize=0):
         super().__init__(maxsize)
+        self._logger = logging.getLogger(self.__class__.__name__)
         self.all_items = set()
 
     def _put(self, item):
         if item not in self.all_items:
+            self._logger.debug('Putting ' + str(item))
             super()._put(item)
             self.all_items.add(item)
 
@@ -46,7 +50,7 @@ def parse_args():
     parser.add_argument('--maxsize', type=int, default=MAXFILESIZE, help=msg)
 
     msg = 'path of output directory. Default is current directory.'
-    parser.add_argument('--out', default=os.curdir, help=msg)
+    parser.add_argument('--out', default='backup', help=msg)
 
     parser.add_argument('token', help='Dropbox for Business access token')
 
@@ -90,34 +94,35 @@ def setup_logging(level):
         handler.setFormatter(formatter)
 
 
-def get_members(headers, response=None):
+def get_members(headers, members, response=None):
     """Return a list of Dropbox for Businesss member ids.
 
     response is an example response payload for unit testing.
     """
     url = 'https://api.dropbox.com/1/team/members/list'
-    members = SetQueue()
     has_more = True
     post_data = {}
 
     while has_more:
         if response is None:
+            # Note that POST data must be submitted as application/json
             r = requests.post(url, headers=headers, json=post_data)
+
             # Raise an exception if status is not OK
             r.raise_for_status()
 
             response = r.json()
 
             # Set cursor in the POST data for the next request
-            # FIXME: fix cursor setting
             post_data['cursor'] = response['cursor']
 
         for member in response['members']:
             profile = member['profile']
-            logging.debug('Found {} {}'.format(
+            logging.info('Found {} {} \t\t{}'.format(
                 profile['given_name'],
-                profile['surname'])
-                )
+                profile['surname'],
+                profile['member_id'],
+                ))
 
             members.put(profile['member_id'])
 
@@ -149,14 +154,16 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
         # If ready-made response is not supplied, poll Dropbox
         if response is None:
             logging.debug('Requesting delta with {}'.format(post_data))
-            r = requests.post(url, headers=headers, json=post_data)
+
+            # Note that POST data must be sent as x-www-form-urlencoded
+            r = requests.post(url, headers=headers, data=post_data)
+
             # Raise an exception if status is not OK
             r.raise_for_status()
 
             response = r.json()
 
             # Set cursor in the POST data for the next request
-            # FIXME: fix cursor setting
             post_data['cursor'] = response['cursor']
 
         # Iterate items for possible adding to file list
@@ -180,7 +187,6 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
                         queue_this = True
 
             if queue_this:
-                logging.info('Queued ' + entry['path'])
                 paths.put(entry['path'])
 
         # Stop looping if no more items are available
@@ -208,12 +214,13 @@ def main():
 
     # Get a list of Dropbox for Business members
     # This is a single POST request so does not parallelise
-    logging.debug('Getting list of members')
-    members = get_members(headers)
+    logging.info('Getting list of members')
+    members = SetQueue()
+    get_members(headers, members)
 
     # For each member, get a list of their files
     # TODO: Getting paths for each member could be parallelised
-    logging.debug('Getting path list for each member')
+    logging.info('Getting path list for each member')
     paths = SetQueue()
 
     # Iterate through the queue of members
@@ -226,28 +233,27 @@ def main():
         except queue.Empty:
             break
 
-    # FIXME: Exit here until get_paths is fixed
-    sys.exit(0)
+        # FIXME: break after first member for debugging
+        break
 
     # Create output directory if it does not exist
-    try:
-        os.mkdir(args.out)
-    except OSError:
-        logging.exception('Error making output directory')
-        raise
+    os.makedirs(args.out, exist_ok=True)
 
     # Download files in the queue
     # TODO: Downloading files could be paralellised
     while True:
         try:
             path = paths.get(block=False)
-            logging.info('Downloading', path)
-            local_path = os.path.join((args.out, path))
+            logging.info('Downloading ' + path)
+            local_path = os.path.join(args.out, path)
             with open(local_path, 'w') as fout:
                 fout.write(get_file(headers, path))
 
         except queue.Empty:
             break
+
+        # FIXME: break after 1 file for debugging
+        break
 
 
 if __name__ == '__main__':
