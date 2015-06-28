@@ -66,8 +66,9 @@ Overall strategy:
 1. Fork the repository on GitHub.
 2. Create your local clone (`git clone <your_fork_URL>`).
 3. Create your feature branch (`git checkout -b my-new-feature`).
-4. Commit your changes to your local repository
+4. Make your changes and test (`python -m unittest discover`).
+5. Commit your changes to your local repository
    (`git commit -am 'Add some feature'`).
-5. Push your local changes to your fork on GitHub
+6. Push your local changes to your fork on GitHub
    (`git push origin my-new-feature`).
-6. Create new Pull Request on GitHub.
+7. Create new Pull Request on GitHub.
