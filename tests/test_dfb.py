@@ -3,7 +3,6 @@
 from datetime import datetime, timezone
 import logging
 import unittest
-from queue import Queue, Empty
 
 import dfb
 
@@ -19,26 +18,6 @@ class TestLogging(unittest.TestCase):
         logging.warning('Warning message')
         logging.info('Info message')
         logging.debug('Debug message')
-
-
-class TestSetQueue(unittest.TestCase):
-
-    def test_normal_queue(self):
-        """Prove that normal Queue allows duplicates."""
-        q = Queue()
-        q.put('item')
-        q.put('item')
-        self.assertEqual('item', q.get())
-        self.assertEqual('item', q.get())
-        self.assertRaises(Empty, q.get, block=False)
-
-    def test_set_queue(self):
-        """Prove that SetQueue disallows duplicates."""
-        q = dfb.SetQueue()
-        q.put('item')
-        q.put('item')
-        self.assertEqual('item', q.get())
-        self.assertRaises(Empty, q.get, block=False)
 
 
 class TestGetMembers(unittest.TestCase):
@@ -58,10 +37,8 @@ class TestGetMembers(unittest.TestCase):
         expected = ['dbmid:AAB_27FUspCzP-DA80EP4r4sr4kn8Uj7h1g',
                     'dbmid:Ak0W11tPO0Z_4wsBvbNyNQsqxBQcT9ccWOQ']
 
-        members = dfb.get_members(None, response=resp)
-
-        for index in range(members.qsize()):
-            self.assertEqual(expected[index], members.get())
+        for i,  member_id in enumerate(dfb.get_members(None, response=resp)):
+            self.assertEqual(expected[i], member_id)
 
 
 class TestDateFormat(unittest.TestCase):

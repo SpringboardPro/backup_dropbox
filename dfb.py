@@ -10,35 +10,20 @@ import logging
 import os
 import requests
 import sys
-import queue
 
 
 __version__ = '0.1'
 
 MAXFILESIZE = 100  # Max file size in MB
-LOGGING_LEVEL = logging.DEBUG
+LOGGING_LEVEL = logging.INFO
 
 # Date format used by Dropbox https://www.dropbox.com/developers/core/docs
 DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
 
 
-class SetQueue(queue.Queue):
-    """Queue which will not allow equal object to be put more than once."""
-
-    def __init__(self, maxsize=0):
-        super().__init__(maxsize)
-        self._logger = logging.getLogger(self.__class__.__name__)
-        self.all_items = set()
-
-    def _put(self, item):
-        if item not in self.all_items:
-            self._logger.debug('Putting ' + str(item))
-            super()._put(item)
-            self.all_items.add(item)
-
-
 def parse_args():
     """Parse command line arguments."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', action='version',
                         version='%(prog)s ' + __version__)
@@ -49,7 +34,8 @@ def parse_args():
     msg = 'select only files up to size in MB inclusive'
     parser.add_argument('--maxsize', type=int, default=MAXFILESIZE, help=msg)
 
-    msg = 'path of output directory. Default is current directory.'
+    # TODO: Change default directory to have date in YYYY-MM-DD format
+    msg = 'path of output directory. Default is "backup".'
     parser.add_argument('--out', default='backup', help=msg)
 
     parser.add_argument('token', help='Dropbox for Business access token')
@@ -71,6 +57,7 @@ def parse_args():
 
 def setup_logging(level):
     """Set up logging."""
+
     logger = logging.getLogger()
     logger.setLevel(level)
 
@@ -94,11 +81,12 @@ def setup_logging(level):
         handler.setFormatter(formatter)
 
 
-def get_members(headers, members, response=None):
-    """Return a list of Dropbox for Businesss member ids.
+def get_members(headers, response=None):
+    """Generate Dropbox for Businesss member ids.
 
     response is an example response payload for unit testing.
     """
+
     url = 'https://api.dropbox.com/1/team/members/list'
     has_more = True
     post_data = {}
@@ -124,7 +112,7 @@ def get_members(headers, members, response=None):
                 profile['member_id'],
                 ))
 
-            members.put(profile['member_id'])
+            yield profile['member_id']
 
         # Stop looping if no more members are available
         has_more = response['has_more']
@@ -132,19 +120,17 @@ def get_members(headers, members, response=None):
         # Clear the response
         response = None
 
-    return members
 
-
-def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
+def get_paths(headers, member_id, since=None, maxsize=MAXFILESIZE,
               response=None):
-    """Add eligible file paths to the list of paths.
+    """Generate eligible file paths for the given member.
 
-    paths is a Queue of files to download later
     member_id is the Dropbox member id
     since is the datetime before which files are ignored
     maxsize is the size above which to ignore in MB
     response is an example response payload for unit testing
     """
+
     headers['X-Dropbox-Perform-As-Team-Member'] = member_id
     url = 'https://api.dropbox.com/1/delta'
     has_more = True
@@ -155,7 +141,8 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
         if response is None:
             logging.debug('Requesting delta with {}'.format(post_data))
 
-            # Note that POST data must be sent as x-www-form-urlencoded
+            # Note that POST data must be sent as
+            # application/x-www-form-urlencoded
             r = requests.post(url, headers=headers, data=post_data)
 
             # Raise an exception if status is not OK
@@ -187,7 +174,8 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
                         queue_this = True
 
             if queue_this:
-                paths.put(entry['path'])
+                logging.debug('Marked for download ' + entry['path'])
+                yield entry['path']
 
         # Stop looping if no more items are available
         has_more = response['has_more']
@@ -196,12 +184,17 @@ def get_paths(headers, paths, member_id, since=None, maxsize=MAXFILESIZE,
         response = None
 
 
-def get_file(headers, path):
+def get_file(headers, path, member_id):
     """Return the data for the given file."""
+
     url = 'https://api-content.dropbox.com/1/files/auto' + path
+    headers['X-Dropbox-Perform-As-Team-Member'] = member_id
+
     r = requests.get(url, headers=headers)
+
     # Raise an exception if status code is not OK
     r.raise_for_status()
+
     return r.content
 
 
@@ -210,50 +203,43 @@ def main():
 
     # Parse command line arguments
     args = parse_args()
+
+    # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
+
+    # Use a dict with paths as keys and member_ids as values
+    # This automatically causes the paths to be a set (no duplicates)
+    paths_to_member_ids = {}
 
     # Get a list of Dropbox for Business members
     # This is a single POST request so does not parallelise
-    logging.info('Getting list of members')
-    members = SetQueue()
-    get_members(headers, members)
+    for member_id in get_members(headers):
 
-    # For each member, get a list of their files
-    # TODO: Getting paths for each member could be parallelised
-    logging.info('Getting path list for each member')
-    paths = SetQueue()
-
-    # Iterate through the queue of members
-    while True:
-        try:
-            member_id = members.get(block=False)
-            logging.debug('Getting paths for ' + member_id)
-            get_paths(headers, paths, member_id, args.since)
-
-        except queue.Empty:
-            break
-
-        # FIXME: break after first member for debugging
-        break
-
-    # Create output directory if it does not exist
-    os.makedirs(args.out, exist_ok=True)
+        # For each member, get a list of their files
+        # TODO: Getting paths for each member could be parallelised
+        logging.info('Getting paths for ' + member_id)
+        for path in get_paths(headers, member_id, args.since, args.maxsize):
+            paths_to_member_ids[path] = member_id
 
     # Download files in the queue
     # TODO: Downloading files could be paralellised
-    while True:
+    # However, do not download file data into a queue for writing later because
+    # the queue could rapidly run out of memory
+    for path, member_id in paths_to_member_ids.items():
+        logging.info('Downloading ' + path)
+
+        # Ignore leading slash in path
+        local_path = os.path.join(args.out, path[1:])
+
+        # Create output directory if it does not exist
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
         try:
-            path = paths.get(block=False)
-            logging.info('Downloading ' + path)
-            local_path = os.path.join(args.out, path)
-            with open(local_path, 'w') as fout:
-                fout.write(get_file(headers, path))
-
-        except queue.Empty:
-            break
-
-        # FIXME: break after 1 file for debugging
-        break
+            with open(local_path, 'wb') as fout:
+                fout.write(get_file(headers, path, member_id))
+        except Exception:
+            logging.warning('Could not download {}'.format(path))
+            logging.exception()
 
 
 if __name__ == '__main__':
