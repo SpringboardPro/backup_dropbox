@@ -12,7 +12,7 @@ import requests
 import sys
 
 
-__version__ = '0.1'
+__version__ = '0.1.1'
 
 MAXFILESIZE = 100  # Max file size in MB
 LOGGING_LEVEL = logging.INFO
@@ -238,8 +238,7 @@ def main():
             with open(local_path, 'wb') as fout:
                 fout.write(get_file(headers, path, member_id))
         except Exception:
-            logging.warning('Could not download {}'.format(path))
-            logging.exception()
+            logging.error('Could not download {}'.format(path))
 
 
 if __name__ == '__main__':
