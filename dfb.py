@@ -216,13 +216,11 @@ def main():
     for member_id in get_members(headers):
 
         # For each member, get a list of their files
-        # TODO: Getting paths for each member could be parallelised
         logging.info('Getting paths for ' + member_id)
         for path in get_paths(headers, member_id, args.since, args.maxsize):
             paths_to_member_ids[path] = member_id
 
     # Download files in the queue
-    # TODO: Downloading files could be paralellised
     # However, do not download file data into a queue for writing later because
     # the queue could rapidly run out of memory
     for path, member_id in paths_to_member_ids.items():
