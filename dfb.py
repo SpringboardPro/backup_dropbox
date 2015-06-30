@@ -203,6 +203,7 @@ def main():
 
     # Parse command line arguments
     args = parse_args()
+    logging.info('args = {}'.format(str(args)))
 
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
@@ -237,6 +238,8 @@ def main():
                 fout.write(get_file(headers, path, member_id))
         except Exception:
             logging.error('Could not download {}'.format(path))
+
+    logging.info('Exited successfully')
 
 
 if __name__ == '__main__':
