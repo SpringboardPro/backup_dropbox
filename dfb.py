@@ -154,19 +154,19 @@ def get_paths(headers, member_id, since=None, maxsize=MAXFILESIZE,
             post_data['cursor'] = response['cursor']
 
         # Iterate items for possible adding to file list
-        for lowercase_path, entry in response['entries']:
-            logging.debug('Assessing ' + entry['path'])
+        for lowercase_path, metadata in response['entries']:
+            logging.debug('Assessing ' + metadata['path'])
 
-            # Set queue_this to True if the entry should be downloaded
+            # Set queue_this to True if the file should be downloaded
             queue_this = False
 
             # Ignore directories
-            if not entry['is_dir']:
+            if not metadata['is_dir']:
                 # Only list files under maxsize
-                if entry['bytes'] <= 1e6 * maxsize:
+                if metadata['bytes'] <= 1e6 * maxsize:
                     # Only list those modified since
                     if since:
-                        last_mod = datetime.strptime(entry['modified'],
+                        last_mod = datetime.strptime(metadata['modified'],
                                                      DATE_FORMAT)
                         if last_mod >= since:
                             queue_this = True
@@ -174,8 +174,8 @@ def get_paths(headers, member_id, since=None, maxsize=MAXFILESIZE,
                         queue_this = True
 
             if queue_this:
-                logging.debug('Marked for download ' + entry['path'])
-                yield entry['path']
+                logging.debug('Marked for download ' + metadata['path'])
+                yield metadata['path']
 
         # Stop looping if no more items are available
         has_more = response['has_more']
