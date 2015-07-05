@@ -2,14 +2,14 @@
 
 from datetime import datetime
 import logging
-from pprint import pformat
 
 import requests
 
 import dfb
 
 
-def get_metadata(headers, member_id, since=None, response=None):
+def get_metadata(headers, member_id, since=None, maxsize=dfb.MAXFILESIZE,
+                 response=None):
     """Generate file metadata for the given member.
 
     member_id is the Dropbox member id
@@ -58,7 +58,7 @@ def get_metadata(headers, member_id, since=None, response=None):
 
 
 def main():
-    dfb.setup_logging(logging.DEBUG)
+    dfb.setup_logging(logging.INFO)
     args = dfb.parse_args()
 
     # Send the OAuth2 authorization token with every request
@@ -71,7 +71,7 @@ def main():
         logging.info('Getting paths for ' + member_id)
         for metadata in get_metadata(headers, member_id, args.since,
                                      args.maxsize):
-            logging.info(pformat(metadata))
+            logging.info(metadata)
 
 
 if __name__ == '__main__':

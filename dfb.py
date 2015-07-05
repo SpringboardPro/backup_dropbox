@@ -21,6 +21,52 @@ LOGGING_LEVEL = logging.INFO
 DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
 
 
+class Path():
+    """Path object to encapsulate shared folder and member id.
+
+    Path objects should be treated as immutable - don't try to set attributes.
+    """
+
+    def __init__(self, member_id, full_path, shared_folder=''):
+        self.__member_id = member_id
+        self.__full_path = full_path
+        self.__shared_folder = shared_folder
+
+    # Use property decorator to set attributes to raed-only
+    @property
+    def member_id(self):
+        return self.__member_id
+
+    @property
+    def full_path(self):
+        return self.__full_path
+
+    @property
+    def shared_folder(self):
+        return self.__shared_folder
+
+    @property
+    def shared_path(self):
+        """Return path with the shared folder at the root.
+
+        That is, any unshared folders above the shared folder are removed.
+        """
+
+        index = self.__full_path.index(self.__shared_folder)
+        return self.__full_path[index:]
+
+    def __hash__(self):
+        # Implement __hash__() so that object can be used for dict keys
+        return hash(self.shared_path)
+
+    def __eq__(self, other):
+        # __eq__() must be implemented to make the object hashable
+        if not isinstance(other, self.__class__):
+            return False
+
+        return self.shared_path == other.shared_path
+
+
 def parse_args():
     """Parse command line arguments."""
 
