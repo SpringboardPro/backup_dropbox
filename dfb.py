@@ -5,7 +5,7 @@ See README.md for full instructions.
 
 
 import argparse
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import logging
 import os
 import requests
@@ -80,13 +80,20 @@ def parse_args():
     msg = 'select only files up to size in MB inclusive'
     parser.add_argument('--maxsize', type=int, default=MAXFILESIZE, help=msg)
 
-    # TODO: Change default directory to have date in YYYY-MM-DD format
-    msg = 'path of output directory. Default is "backup".'
-    parser.add_argument('--out', default='backup', help=msg)
+    msg = 'path of output directory. Default is "yyyy-mm-dd backup".'
+    parser.add_argument('--out', help=msg)
 
     parser.add_argument('token', help='Dropbox for Business access token')
 
     args = parser.parse_args()
+
+    # Create an output directory name if one was not given
+    if not args.out:
+        args.out = date.today().strftime('%Y-%m-%d') + ' backup'
+
+        # If since was specified, append it to the output directory name
+        if args.since:
+            args.out = ' '.join(args.out, 'since', args.since)
 
     # Convert since to a datetime object
     if args.since:
