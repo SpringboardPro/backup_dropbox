@@ -5,17 +5,20 @@ See README.md for full instructions.
 
 
 import argparse
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import logging
 import os
 import requests
+import string
 import sys
 
 
 __version__ = '0.1.1'
 
 MAXFILESIZE = 100  # Max file size in MB
-LOGGING_LEVEL = logging.INFO
+LOGGING_FILE_LEVEL = logging.DEBUG
+LOGGING_FILENAME = 'dfb.log'
+LOGGING_CONSOLE_LEVEL = logging.INFO
 
 # Date format used by Dropbox https://www.dropbox.com/developers/core/docs
 DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
@@ -34,13 +37,20 @@ def parse_args():
     msg = 'select only files up to size in MB inclusive'
     parser.add_argument('--maxsize', type=int, default=MAXFILESIZE, help=msg)
 
-    # TODO: Change default directory to have date in YYYY-MM-DD format
-    msg = 'path of output directory. Default is "backup".'
-    parser.add_argument('--out', default='backup', help=msg)
+    msg = 'path of output directory. Default is "yyyy-mm-dd backup".'
+    parser.add_argument('--out', help=msg)
 
     parser.add_argument('token', help='Dropbox for Business access token')
 
     args = parser.parse_args()
+
+    # Create an output directory name if one was not given
+    if not args.out:
+        args.out = date.today().strftime('%Y-%m-%d') + ' backup'
+
+        # If since was specified, append it to the output directory name
+        if args.since:
+            args.out = ' '.join((args.out, 'since', args.since))
 
     # Convert since to a datetime object
     if args.since:
@@ -55,29 +65,31 @@ def parse_args():
     return args
 
 
-def setup_logging(level):
+def setup_logging(file_level=LOGGING_FILE_LEVEL,
+                  console_level=LOGGING_CONSOLE_LEVEL):
     """Set up logging."""
 
     logger = logging.getLogger()
-    logger.setLevel(level)
+    logger.setLevel(min(file_level, console_level))
 
     # Remove any existing handlers
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
     # Create a file handler to log to a file
-    fh = logging.FileHandler('dfb.log')
+    fh = logging.FileHandler(LOGGING_FILENAME)
+    fh.setLevel(file_level)
     logger.addHandler(fh)
 
     # Create a stream handler to log to the terminal
     sh = logging.StreamHandler()
+    sh.setLevel(console_level)
     logger.addHandler(sh)
 
     fmt = '%(asctime)s %(levelname)-8s %(name)s %(message)s'
     formatter = logging.Formatter(fmt)
 
     for handler in logger.handlers:
-        handler.setLevel(level)
         handler.setFormatter(formatter)
 
 
@@ -121,13 +133,10 @@ def get_members(headers, response=None):
         response = None
 
 
-def get_paths(headers, member_id, since=None, maxsize=MAXFILESIZE,
-              response=None):
-    """Generate eligible file paths for the given member.
+def get_metadata(headers, member_id, response=None):
+    """Generate metadata for each path for the given member.
 
     member_id is the Dropbox member id
-    since is the datetime before which files are ignored
-    maxsize is the size above which to ignore in MB
     response is an example response payload for unit testing
     """
 
@@ -153,29 +162,14 @@ def get_paths(headers, member_id, since=None, maxsize=MAXFILESIZE,
             # Set cursor in the POST data for the next request
             post_data['cursor'] = response['cursor']
 
-        # Iterate items for possible adding to file list
+        # Iterate path items
         for lowercase_path, metadata in response['entries']:
-            logging.debug('Assessing ' + metadata['path'])
 
-            # Set queue_this to True if the file should be downloaded
-            queue_this = False
+            # Remove unprintable characters
+            metadata['path'] = remove_unprintable(metadata['path'])
 
-            # Ignore directories
-            if not metadata['is_dir']:
-                # Only list files under maxsize
-                if metadata['bytes'] <= 1e6 * maxsize:
-                    # Only list those modified since
-                    if since:
-                        last_mod = datetime.strptime(metadata['modified'],
-                                                     DATE_FORMAT)
-                        if last_mod >= since:
-                            queue_this = True
-                    else:
-                        queue_this = True
-
-            if queue_this:
-                logging.debug('Marked for download ' + metadata['path'])
-                yield metadata['path']
+            logging.debug('Found ' + metadata['path'])
+            yield metadata
 
         # Stop looping if no more items are available
         has_more = response['has_more']
@@ -184,7 +178,40 @@ def get_paths(headers, member_id, since=None, maxsize=MAXFILESIZE,
         response = None
 
 
-def get_file(headers, path, member_id):
+def remove_unprintable(text):
+    """Remove unprintable unicode characters."""
+    return ''.join(c for c in text if c in string.printable)
+
+
+def parse_metadata(metadata, since=None, maxsize=MAXFILESIZE):
+    """Parse Dropbox path metadata."""
+
+    # Return shared folders for storing
+    if metadata['is_dir']:
+        try:
+            folder_id = metadata['shared_folder']['shared_folder_id']
+            path = '/' + os.path.basename(metadata['path'])
+            return {folder_id: path}
+
+        except KeyError:
+            # We do not need to parse unshared folders
+            return
+
+    # Ignore large files
+    if metadata['bytes'] > 1e6 * maxsize:
+        return
+
+    # Only return those modified since given date
+    if since is not None:
+        last_mod = datetime.strptime(metadata['modified'], DATE_FORMAT)
+        if since > last_mod:
+            return
+
+    logging.debug('Marked for download ' + metadata['path'])
+    return metadata
+
+
+def download_file(headers, member_id, path):
     """Return the data for the given file."""
 
     url = 'https://api-content.dropbox.com/1/files/auto' + path
@@ -198,8 +225,41 @@ def get_file(headers, path, member_id):
     return r.content
 
 
+def save_file(headers, member_id, root, metadata):
+    """Save the file under the root directory given."""
+
+    shared_path = metadata['shared_path']
+    logging.info('Saving ' + shared_path)
+
+    # Ignore leading slash in path
+    local_path = os.path.join(root, shared_path[1:])
+
+    # Create output directory if it does not exist
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+    try:
+        # Open file with x flag for exclusive open
+        # which can raise a FileExistsError
+        with open(local_path, 'xb') as fout:
+            try:
+                fout.write(download_file(headers, member_id, metadata['path']))
+            except Exception:
+                logging.exception('Could not download ' + shared_path)
+
+            # Set the file modification time
+            mtime = datetime.strptime(metadata['modified'],
+                                      DATE_FORMAT).timestamp()
+            os.utime(local_path, (mtime, mtime))
+
+    except FileExistsError:
+        logging.debug('File exists: ' + local_path)
+
+    except Exception:
+        logging.exception('Exception whilst saving {}'.format(local_path))
+
+
 def main():
-    setup_logging(LOGGING_LEVEL)
+    setup_logging()
 
     # Parse command line arguments
     args = parse_args()
@@ -208,9 +268,9 @@ def main():
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
 
-    # Use a dict with paths as keys and member_ids as values
-    # This automatically causes the paths to be a set (no duplicates)
-    paths_to_member_ids = {}
+    # Use a dict with shared folder ids as keys and shared folder paths as
+    # values
+    shared_id_to_path = {}
 
     # Get a list of Dropbox for Business members
     # This is a single POST request so does not parallelise
@@ -218,26 +278,45 @@ def main():
 
         # For each member, get a list of their files
         logging.info('Getting paths for ' + member_id)
-        for path in get_paths(headers, member_id, args.since, args.maxsize):
-            paths_to_member_ids[path] = member_id
+        for metadata in get_metadata(headers, member_id):
 
-    # Download files in the queue
-    # However, do not download file data into a queue for writing later because
-    # the queue could rapidly run out of memory
-    for path, member_id in paths_to_member_ids.items():
-        logging.info('Downloading ' + path)
+            # Clean metadata into shared folders or paths
+            metadata = parse_metadata(metadata, args.since, args.maxsize)
 
-        # Ignore leading slash in path
-        local_path = os.path.join(args.out, path[1:])
+            if not metadata:
+                continue
 
-        # Create output directory if it does not exist
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            if len(metadata) == 1:
+                # If metadata is only 1 key-value pair long, it must be a
+                # shared folder, not a file
+                try:
+                    # Iterate over the keys (even though there is only one)
+                    for shared_id in metadata:
+                        # Assert that the path already registered for the
+                        # shared folder is equal to the path given in this
+                        # metadata dict
+                        assert shared_id_to_path[shared_id] == \
+                            metadata[shared_id]
 
-        try:
-            with open(local_path, 'wb') as fout:
-                fout.write(get_file(headers, path, member_id))
-        except Exception:
-            logging.error('Could not download {}'.format(path))
+                except KeyError:
+                    # shared_id was not recognised so add it to the dict
+                    shared_id_to_path.update(metadata)
+
+                continue
+
+            # metadata is for a file
+            try:
+                # Assume that the file is in a shared folder
+                shared_id = metadata['parent_shared_folder_id']
+                # Correct the path relative to shared path
+                index = metadata['path'].index(shared_id_to_path[shared_id])
+                metadata['shared_path'] = metadata['path'][index:]
+
+            except KeyError:
+                # File is not in a shared folder so save as it is
+                pass
+
+            save_file(headers, member_id, args.out, metadata)
 
     logging.info('Exited successfully')
 
