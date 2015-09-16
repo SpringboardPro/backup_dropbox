@@ -16,7 +16,7 @@ import sys
 __version__ = '0.1.1'
 
 MAXFILESIZE = 100  # Max file size in MB
-LOGGING_FILE_LEVEL = logging.DEBUG
+LOGGING_FILE_LEVEL = logging.INFO
 LOGGING_FILENAME = 'dfb.log'
 LOGGING_CONSOLE_LEVEL = logging.INFO
 
@@ -165,6 +165,11 @@ def get_metadata(headers, member_id, response=None):
         # Iterate path items
         for lowercase_path, metadata in response['entries']:
 
+            if metadata is None:
+                msg = 'metadata is None. path: {}; metadata: {}'
+                logging.warning(msg.format(lowercase_path, metadata))
+                continue
+
             # Remove unprintable characters
             metadata['path'] = remove_unprintable(metadata['path'])
 
@@ -294,9 +299,13 @@ def main():
                     for shared_id in metadata:
                         # Assert that the path already registered for the
                         # shared folder is equal to the path given in this
-                        # metadata dict
-                        assert shared_id_to_path[shared_id] == \
-                            metadata[shared_id]
+                        # metadata dict. Dropbox sometimes changes the case
+                        # for an unknown reason
+                        shared = shared_id_to_path[shared_id].lower()
+                        meta_id = metadata[shared_id].lower()
+
+                        assert shared == meta_id, ('Shared ID {} not equal to '
+                        'metadata ID {}'.format(shared, meta_id))
 
                 except KeyError:
                     # shared_id was not recognised so add it to the dict
