@@ -151,6 +151,12 @@ def get_metadata(headers, member_id, response=None):
             # application/x-www-form-urlencoded
             r = requests.post(url, headers=headers, data=post_data)
 
+            # Warn if receive 403 response
+            if r.status_code == 403:
+                msg = '403 not allowed for member {}'
+                logging.warning(msg.format(member_id))
+                break
+
             # Raise an exception if status is not OK
             r.raise_for_status()
 
@@ -263,7 +269,7 @@ def main():
 
     # Parse command line arguments
     args = parse_args()
-    logging.info('args = {}'.format(str(args)))
+    logging.debug('args = {}'.format(str(args)))
 
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
