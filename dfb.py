@@ -26,7 +26,6 @@ DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
 
 def parse_args():
     """Parse command line arguments."""
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', action='version',
                         version='%(prog)s ' + __version__)
@@ -68,7 +67,6 @@ def parse_args():
 def setup_logging(file_level=LOGGING_FILE_LEVEL,
                   console_level=LOGGING_CONSOLE_LEVEL):
     """Set up logging."""
-
     logger = logging.getLogger()
     logger.setLevel(min(file_level, console_level))
 
@@ -98,7 +96,6 @@ def get_members(headers, response=None):
 
     response is an example response payload for unit testing.
     """
-
     url = 'https://api.dropbox.com/1/team/members/list'
     has_more = True
     post_data = {}
@@ -139,7 +136,6 @@ def get_metadata(headers, member_id, response=None):
     member_id is the Dropbox member id
     response is an example response payload for unit testing
     """
-
     headers['X-Dropbox-Perform-As-Team-Member'] = member_id
     url = 'https://api.dropbox.com/1/delta'
     has_more = True
@@ -190,7 +186,6 @@ def remove_unprintable(text):
 
 def parse_metadata(metadata, since=None, maxsize=MAXFILESIZE):
     """Parse Dropbox path metadata."""
-
     # Return shared folders for storing
     if metadata['is_dir']:
         try:
@@ -218,7 +213,6 @@ def parse_metadata(metadata, since=None, maxsize=MAXFILESIZE):
 
 def download_file(headers, member_id, path):
     """Return the data for the given file."""
-
     url = 'https://api-content.dropbox.com/1/files/auto' + path
     headers['X-Dropbox-Perform-As-Team-Member'] = member_id
 
@@ -232,7 +226,6 @@ def download_file(headers, member_id, path):
 
 def save_file(headers, member_id, root, metadata):
     """Save the file under the root directory given."""
-
     shared_path = metadata['shared_path']
     logging.info('Saving ' + shared_path)
 
@@ -264,6 +257,7 @@ def save_file(headers, member_id, root, metadata):
 
 
 def main():
+    """Main program."""
     setup_logging()
 
     # Parse command line arguments
