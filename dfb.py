@@ -17,9 +17,7 @@ import time
 __version__ = '0.1.2'
 
 MAXFILESIZE = 100  # Max file size in MB
-LOGGING_FILE_LEVEL = logging.INFO
 LOGGING_FILENAME = 'dfb.log'
-LOGGING_CONSOLE_LEVEL = logging.INFO
 
 # Date format used by Dropbox https://www.dropbox.com/developers/core/docs
 DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
@@ -39,6 +37,9 @@ def parse_args():
 
     msg = 'path of output directory. Default is "yyyy-mm-dd backup".'
     parser.add_argument('--out', help=msg)
+
+    msg = 'logging level: DEBUG=10; INFO=20; WARNING=30; ERROR=40; FATAL=50'
+    parser.add_argument('--loglevel', help=msg, default=20, type=int)
 
     parser.add_argument('token', help='Dropbox for Business access token')
 
@@ -65,11 +66,10 @@ def parse_args():
     return args
 
 
-def setup_logging(file_level=LOGGING_FILE_LEVEL,
-                  console_level=LOGGING_CONSOLE_LEVEL):
+def setup_logging(level=logging.INFO):
     """Set up logging."""
     logger = logging.getLogger()
-    logger.setLevel(min(file_level, console_level))
+    logger.setLevel(level)
 
     # Remove any existing handlers
     for handler in logger.handlers:
@@ -77,12 +77,12 @@ def setup_logging(file_level=LOGGING_FILE_LEVEL,
 
     # Create a file handler to log to a file
     fh = logging.FileHandler(LOGGING_FILENAME)
-    fh.setLevel(file_level)
+    fh.setLevel(level)
     logger.addHandler(fh)
 
     # Create a stream handler to log to the terminal
     sh = logging.StreamHandler()
-    sh.setLevel(console_level)
+    sh.setLevel(level)
     logger.addHandler(sh)
 
     fmt = '%(asctime)s %(levelname)-8s %(name)s %(message)s'
@@ -233,6 +233,7 @@ def download_file(headers, member_id, path):
 
 def save_file(headers, member_id, root, metadata):
     """Save the file under the root directory given."""
+    logging.debug(metadata)
     shared_path = metadata['shared_path']
     logging.info('Saving ' + shared_path)
 
@@ -265,11 +266,10 @@ def save_file(headers, member_id, root, metadata):
 
 def main():
     """Main program."""
-    setup_logging()
-
     # Parse command line arguments
     args = parse_args()
     logging.debug('args = {}'.format(str(args)))
+    setup_logging(args.loglevel)
 
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
@@ -343,13 +343,14 @@ if __name__ == '__main__':
     try:
         start = time.time()
         main()
-        logging.info('Exit OK at {} s'.format(time.time() - start))
+        logging.info('Exit OK at {:.2f} s'.format(time.time() - start))
 
     # Ignore SystemExit exceptions (raised by argparse.parse_args() etc.)
     except SystemExit:
-        logging.info('SystemExit raised at {} s'.format(time.time() - start))
+        msg = 'SystemExit raised at {:.2f} s'
+        logging.info(msg.format(time.time() - start))
 
     # Report all other exceptions
     except:
-        logging.exception('Uncaught exception at {} s'.format(
-                          time.time() - start))
+        msg = 'Uncaught exception at {:.2f} s'
+        logging.exception(msg.format(time.time() - start))
