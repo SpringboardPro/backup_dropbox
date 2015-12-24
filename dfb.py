@@ -318,7 +318,15 @@ def main():
                 # Assume that the file is in a shared folder
                 shared_id = metadata['parent_shared_folder_id']
                 # Correct the path relative to shared path
-                index = metadata['path'].index(shared_id_to_path[shared_id])
+                try:
+                    index = metadata['path'].index(shared_id_to_path[shared_id])
+
+                except ValueError:
+                    msg = 'Cannot convert to shared path: {} not found in {}'
+                    logging.error(msg.format(shared_id_to_path[shared_id],
+                        metadata['path']))
+                    continue
+
                 metadata['shared_path'] = metadata['path'][index:]
 
             except KeyError:
