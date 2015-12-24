@@ -291,15 +291,17 @@ def main():
                 try:
                     # Iterate over the keys (even though there is only one)
                     for shared_id in metadata:
-                        # Assert that the path already registered for the
+                        # Warn if the path already registered for the
                         # shared folder is equal to the path given in this
                         # metadata dict. Dropbox sometimes changes the case
                         # for an unknown reason
                         shared = shared_id_to_path[shared_id].lower()
                         meta_id = metadata[shared_id].lower()
 
-                        assert shared == meta_id, ('Shared ID {} not equal to '
-                        'metadata ID {}'.format(shared, meta_id))
+                        if shared != meta_id:
+                            msg = 'Shared ID {} not equal to '
+                            'metadata ID {}'.format(shared, meta_id)
+                            logging.warning(msg)
 
                 except KeyError:
                     # shared_id was not recognised so add it to the dict
@@ -313,12 +315,13 @@ def main():
                 shared_id = metadata['parent_shared_folder_id']
                 # Correct the path relative to shared path
                 try:
-                    index = metadata['path'].index(shared_id_to_path[shared_id])
+                    index = metadata['path'].index(
+                        shared_id_to_path[shared_id])
 
                 except ValueError:
                     msg = 'Cannot convert to shared path: {} not found in {}'
                     logging.error(msg.format(shared_id_to_path[shared_id],
-                        metadata['path']))
+                                  metadata['path']))
                     continue
 
                 metadata['shared_path'] = metadata['path'][index:]
