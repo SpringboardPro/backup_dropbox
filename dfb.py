@@ -11,9 +11,10 @@ import os
 import requests
 import string
 import sys
+import time
 
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 MAXFILESIZE = 100  # Max file size in MB
 LOGGING_FILE_LEVEL = logging.INFO
@@ -332,17 +333,18 @@ def main():
 
             save_file(headers, member_id, args.out, metadata)
 
-    logging.info('Exited successfully')
-
 
 if __name__ == '__main__':
     try:
+        start = time.time()
         main()
+        logging.info('Exit OK at {} s'.format(time.time() - start))
 
     # Ignore SystemExit exceptions (raised by argparse.parse_args() etc.)
     except SystemExit:
-        pass
+        logging.info('SystemExit raised at {} s'.format(time.time() - start))
 
     # Report all other exceptions
     except:
-        logging.exception('Uncaught exception')
+        logging.exception('Uncaught exception at {} s'.format(
+                          time.time() - start))
