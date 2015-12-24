@@ -1,7 +1,6 @@
 """Tests for Dropbox for Business access."""
 
 import argparse
-import json
 from pprint import pprint
 import requests
 
@@ -18,6 +17,16 @@ def parse_args():
 
 
 def post(headers, url, data='{}'):
+    """Post request to Dropbox.
+
+    Args:
+        headers (dict): HTTP headers for request
+        url (str): url to request
+        data (dict): metadata attached to request
+
+    Returns:
+        dict: response body (from JSON)
+    """
     print('Requesting', url, data)
     r = requests.post(url, headers=headers, data=data)
     r.raise_for_status()
@@ -25,6 +34,7 @@ def post(headers, url, data='{}'):
 
 
 def main():
+    """Main program."""
     args = parse_args()
     headers = {'Content-Type': 'application/json',
                'Authorization': 'Bearer ' + args.token}
@@ -44,7 +54,7 @@ def main():
             response = post(headers, 'https://api.dropbox.com/1/delta', data)
             pprint(response)
             has_more = response['has_more']
-            data = json.dumps({'cursor': response['cursor']})
+            data['cursor'] = response['cursor']
 
 
 if __name__ == '__main__':
