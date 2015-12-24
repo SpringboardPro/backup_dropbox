@@ -300,9 +300,8 @@ def main():
                         meta_id = metadata[shared_id].lower()
 
                         if shared != meta_id:
-                            msg = 'Shared ID {} not equal to '
-                            'metadata ID {}'.format(shared, meta_id)
-                            logging.warning(msg)
+                            msg = 'Shared ID {} not equal to metadata ID {}'
+                            logging.warning(msg.format(shared, meta_id))
 
                 except KeyError:
                     # shared_id was not recognised so add it to the dict
