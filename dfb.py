@@ -234,7 +234,13 @@ def download_file(headers, member_id, path):
 def save_file(headers, member_id, root, metadata):
     """Save the file under the root directory given."""
     logging.debug(metadata)
-    shared_path = metadata['shared_path']
+
+    try:
+        shared_path = metadata['shared_path']
+
+    except KeyError:
+        shared_path = metadata['path']
+
     logging.info('Saving ' + shared_path)
 
     # Ignore leading slash in path
@@ -261,15 +267,16 @@ def save_file(headers, member_id, root, metadata):
         logging.debug('File exists: ' + local_path)
 
     except Exception:
-        logging.exception('Exception whilst saving {}'.format(local_path))
+        logging.exception('Exception whilst saving ' + local_path)
 
 
 def main():
     """Main program."""
     # Parse command line arguments
     args = parse_args()
-    logging.debug('args = {}'.format(str(args)))
     setup_logging(args.loglevel)
+    logging.debug('args = ' + str(args))
+    logging.info('dfb.py version ' + __version__)
 
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
