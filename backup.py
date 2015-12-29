@@ -276,7 +276,7 @@ def main():
     args = parse_args()
     setup_logging(args.loglevel)
     logging.debug('args = ' + str(args))
-    logging.info('{} version {}'.format(args.prog, __version__))
+    logging.info('{} version {}'.format(__file__, __version__))
 
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
