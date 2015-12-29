@@ -1,4 +1,4 @@
-"""Backup Dropbox for Business files.
+"""Backup Dropbox Business files.
 
 See README.md for full instructions.
 """
@@ -14,10 +14,10 @@ import sys
 import time
 
 
-__version__ = '0.1.2'
+__version__ = '0.2.0'
 
 MAXFILESIZE = 100  # Max file size in MB
-LOGGING_FILENAME = 'dfb.log'
+LOGGING_FILENAME = 'backup.log'
 
 # Date format used by Dropbox https://www.dropbox.com/developers/core/docs
 DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
@@ -41,7 +41,7 @@ def parse_args():
     msg = 'logging level: DEBUG=10; INFO=20; WARNING=30; ERROR=40; FATAL=50'
     parser.add_argument('--loglevel', help=msg, default=20, type=int)
 
-    parser.add_argument('token', help='Dropbox for Business access token')
+    parser.add_argument('token', help='Dropbox Business access token')
 
     args = parser.parse_args()
 
@@ -93,7 +93,7 @@ def setup_logging(level=logging.INFO):
 
 
 def get_members(headers, response=None):
-    """Generate Dropbox for Businesss member ids.
+    """Generate Dropbox Businesss member ids.
 
     response is an example response payload for unit testing.
     """
@@ -276,7 +276,7 @@ def main():
     args = parse_args()
     setup_logging(args.loglevel)
     logging.debug('args = ' + str(args))
-    logging.info('dfb.py version ' + __version__)
+    logging.info('{} version {}'.format(args.prog, __version__))
 
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
@@ -285,7 +285,7 @@ def main():
     # values
     shared_id_to_path = {}
 
-    # Get a list of Dropbox for Business members
+    # Get a list of Dropbox Business members
     # This is a single POST request so does not parallelise
     for member_id in get_members(headers):
 

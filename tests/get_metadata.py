@@ -1,14 +1,14 @@
-"""Utility program to examine file metadata"""
+"""Utility program to examine file metadata."""
 
 from datetime import datetime
 import logging
 
 import requests
 
-import dfb
+import backup
 
 
-def get_metadata(headers, member_id, since=None, maxsize=dfb.MAXFILESIZE,
+def get_metadata(headers, member_id, since=None, maxsize=backup.MAXFILESIZE,
                  response=None):
     """Generate file metadata for the given member.
 
@@ -17,7 +17,6 @@ def get_metadata(headers, member_id, since=None, maxsize=dfb.MAXFILESIZE,
     maxsize is the size above which to ignore in MB
     response is an example response payload for unit testing
     """
-
     headers['X-Dropbox-Perform-As-Team-Member'] = member_id
     url = 'https://api.dropbox.com/1/delta'
     has_more = True
@@ -45,7 +44,7 @@ def get_metadata(headers, member_id, since=None, maxsize=dfb.MAXFILESIZE,
             # Ignore files modified before since
             if not metadata['is_dir'] and since:
                 last_mod = datetime.strptime(metadata['modified'],
-                                             dfb.DATE_FORMAT)
+                                             backup.DATE_FORMAT)
                 if last_mod < since:
                     continue
             yield metadata
@@ -58,14 +57,15 @@ def get_metadata(headers, member_id, since=None, maxsize=dfb.MAXFILESIZE,
 
 
 def main():
-    dfb.setup_logging(logging.INFO)
-    args = dfb.parse_args()
+    """Main function."""
+    backup.setup_logging(logging.INFO)
+    args = backup.parse_args()
 
     # Send the OAuth2 authorization token with every request
     headers = {'Authorization': 'Bearer ' + args.token}
 
-    # Get a list of Dropbox for Business members
-    for member_id in dfb.get_members(headers):
+    # Get a list of Dropbox Business members
+    for member_id in backup.get_members(headers):
 
         # For each member, get a list of their files
         logging.info('Getting paths for ' + member_id)

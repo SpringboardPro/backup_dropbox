@@ -1,4 +1,4 @@
-"""Tests for Dropbox for Business access."""
+"""Tests for Dropbox Business access."""
 
 import argparse
 from pprint import pprint
@@ -11,7 +11,7 @@ def parse_args():
 
     parser.add_argument('--member_id', help='List files for given member')
     parser.add_argument('--file', help='Download the given file')
-    parser.add_argument('token', help='Dropbox for Business access token')
+    parser.add_argument('token', help='Dropbox Business access token')
 
     return parser.parse_args()
 

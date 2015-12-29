@@ -1,10 +1,10 @@
-"""Unit tests for the dfb module."""
+"""Unit tests for the backup module."""
 
 from datetime import datetime, timezone
 import logging
 import unittest
 
-import dfb
+import backup
 
 
 class TestGetMembers(unittest.TestCase):
@@ -24,14 +24,15 @@ class TestGetMembers(unittest.TestCase):
         expected = ('dbmid:AAB_27FUspCzP-DA80EP4r4sr4kn8Uj7h1g',
                     'dbmid:Ak0W11tPO0Z_4wsBvbNyNQsqxBQcT9ccWOQ')
 
-        for i,  member_id in enumerate(dfb.get_members(None, response=resp)):
+        for i,  member_id in enumerate(backup.get_members(None, response=resp)):
             self.assertEqual(expected[i], member_id)
+
 
 class TestRemoveUnprintable(unittest.TestCase):
 
     def test_remove(self):
         input = 'some\u200c text'
-        self.assertEqual('some text', dfb.remove_unprintable(input))
+        self.assertEqual('some text', backup.remove_unprintable(input))
 
 
 class TestDateFormat(unittest.TestCase):
@@ -40,7 +41,7 @@ class TestDateFormat(unittest.TestCase):
         expected = datetime(2015, 1, 21, 12, 00, 58, tzinfo=timezone.utc)
 
         date_string = r'Wed, 21 Jan 2015 12:00:58 +0000'
-        actual = datetime.strptime(date_string, dfb.DATE_FORMAT)
+        actual = datetime.strptime(date_string, backup.DATE_FORMAT)
         self.assertEqual(expected, actual)
 
 
@@ -49,7 +50,7 @@ class TestLogging(unittest.TestCase):
     @unittest.skip(('Normally skipped because it prints output and '
                     'creates log files'))
     def test_logging(self):
-        dfb.setup_logging(logging.DEBUG)
+        backup.setup_logging(logging.DEBUG)
         logging.critical('Critical message')
         logging.error('Error message')
         logging.warning('Warning message')
