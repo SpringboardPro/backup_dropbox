@@ -14,7 +14,7 @@ import sys
 import time
 
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 
 MAXFILESIZE = 100  # Max file size in MB
 LOGGING_FILENAME = 'backup.log'
@@ -247,7 +247,12 @@ def save_file(headers, member_id, root, metadata):
     local_path = os.path.join(root, shared_path[1:])
 
     # Create output directory if it does not exist
-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    try:
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+    except FileNotFoundError as ex:
+        # FileNotFoundError raised if path is too long
+        logging.error(str(ex))
 
     try:
         # Open file with x flag for exclusive open
