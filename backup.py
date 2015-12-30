@@ -253,6 +253,7 @@ def save_file(headers, member_id, root, metadata):
     except FileNotFoundError as ex:
         # FileNotFoundError raised if path is too long
         logging.error(str(ex))
+        return
 
     try:
         # Open file with x flag for exclusive open
