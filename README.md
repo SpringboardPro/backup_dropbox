@@ -20,13 +20,19 @@ and can access any user's files.
    You can use the `auth.py` script from the command line to generate an
    authorization code from Dropbox.
 
-2. Clone the git repository and run from the command line as described below.
+2. Clone the git repository using
+   `git clone https://github.com/blokeley/backup_dropbox`
+
+3. `cd backup_dropbox` and `pip install -e .`
+
+4. Change to a different directory and run the commands described in the
+   Command Line Usage section below.
 
 ## Command line usage
 
 To backup all files since 1 January 2015, use:
 
-`python backup.py --since=2015-01-01 --out="path/to/backup" <token>`
+`backup --since=2015-01-01 --out="path/to/backup" <token>`
 
 `token` is the OAuth2 authorisation token received from Dropbox. You can use
 the auth.py utility to help generate this.
@@ -35,7 +41,7 @@ Note that dates are expected in ISO 8601 format.
 
 To backup all files up to and including 100 MB in size:
 
-`python backup.py --maxsize=100 --out="path/to/backup" <token>`
+`backup --maxsize=100 --out="path/to/backup" <token>`
 
 ## Licence
 
