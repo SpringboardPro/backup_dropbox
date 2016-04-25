@@ -276,8 +276,8 @@ def save_file(headers, member_id, root, metadata):
         logging.exception('Exception whilst saving ' + local_path)
 
 
-def main():
-    """Main program."""
+def list_and_save():
+    """List and save Dropbox files (main program)."""
     # Parse command line arguments
     args = parse_args()
     setup_logging(args.loglevel)
@@ -352,10 +352,10 @@ def main():
             save_file(headers, member_id, args.out, metadata)
 
 
-if __name__ == '__main__':
+def main():
     try:
         start = time.time()
-        main()
+        list_and_save()
         logging.info('Exit OK at {:.2f} s'.format(time.time() - start))
 
     # Ignore SystemExit exceptions (raised by argparse.parse_args() etc.)
@@ -367,3 +367,7 @@ if __name__ == '__main__':
     except:
         msg = 'Uncaught exception at {:.2f} s'
         logging.exception(msg.format(time.time() - start))
+
+
+if __name__ == '__main__':
+    main()

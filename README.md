@@ -1,6 +1,6 @@
 # Dropbox Business local backup tool
 
-`backup` is a tool to create local backups of files from Dropbox Business.
+`backup_dropbox` is a tool to create local backups of files from Dropbox Business.
 
 It logs into a Dropbox Business account using the administrator API key
 and can access any user's files.
@@ -8,40 +8,37 @@ and can access any user's files.
 ## Requirements
 
  * [Python](https://www.python.org/downloads) (tested on CPython 3.5)
- * [Dropbox Python SDK](https://www.dropbox.com/developers/core/sdks/python)
  * [requests](http://docs.python-requests.org/)
+ * [Dropbox Python SDK](https://www.dropbox.com/developers/core/sdks/python)
 
 ## Installation
 
 1. Register a Dropbox Business API app with the “Team member file access”
-   permission:
-   https://www.dropbox.com/developers/business
+   permission: https://www.dropbox.com/developers/business
 
-   You can use the `auth.py` script from the command line to generate an
+   You can use the `auth_dropbox` script(see below) to generate an
    authorization code from Dropbox.
 
-2. Clone the git repository using
-   `git clone https://github.com/blokeley/backup_dropbox`
+2. `pip install -e https://github.com/blokeley/backup_dropbox`
 
-3. `cd backup_dropbox` and `pip install -e .`
+3. On the command line, run `auth_dropbox` to generate an authorization code.
 
-4. Change to a different directory and run the commands described in the
-   Command Line Usage section below.
+4. Run `backup_dropbox` as described below.
 
 ## Command line usage
 
 To backup all files since 1 January 2015, use:
 
-`backup --since=2015-01-01 --out="path/to/backup" <token>`
+`backup_dropbox --since=2015-01-01 --out="path/to/backup" <token>`
 
 `token` is the OAuth2 authorisation token received from Dropbox. You can use
-the auth.py utility to help generate this.
+the auth_dropbox utility to help generate this.
 
 Note that dates are expected in ISO 8601 format.
 
 To backup all files up to and including 100 MB in size:
 
-`backup --maxsize=100 --out="path/to/backup" <token>`
+`backup_dropbox --maxsize=100 --out="path/to/backup" <token>`
 
 ## Licence
 

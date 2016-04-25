@@ -6,7 +6,7 @@ https://github.com/pypa/sampleproject
 """
 
 # Always prefer setuptools over distutils
-from setuptools import setup, find_packages
+from setuptools import setup
 # To use a consistent encoding
 from codecs import open
 import io
@@ -89,10 +89,9 @@ setup(
     # What does your project relate to?
     keywords='Dropbox Business backup',
 
-    # You can just specify the packages manually here if your project is
-    # simple. Or you can use find_packages().
+    # Do not install any Python packages or modules
     # packages=find_packages(exclude=['contrib', 'docs', 'tests']),
-    py_modules=['backup'],
+    # py_modules=['backup'],
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's
@@ -100,7 +99,9 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['requests'],
 
+    # Create executable script(s)
     entry_points={
-        'console_scripts': ['backup=backup:main'],
+        'console_scripts': ['backup_dropbox=backup:main',
+                            'auth_dropbox=auth:main'],
     }
 )
