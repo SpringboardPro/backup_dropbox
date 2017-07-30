@@ -8,19 +8,64 @@ import argparse
 from datetime import date, datetime, timezone
 import logging
 import os
-import requests
 import string
 import sys
 import time
+import queue
 
+import dropbox
 
-__version__ = '0.2.1'
+__version__ = '2.0.0'
 
 MAXFILESIZE = 100  # Max file size in MB
 LOGGING_FILENAME = 'backup.log'
 
 # Date format used by Dropbox https://www.dropbox.com/developers/core/docs
 DATE_FORMAT = r'%a, %d %b %Y %H:%M:%S %z'
+
+
+class SetQueue(queue.Queue):
+    """Queue which will allow a given object to be put once only.
+
+    Objects are considered identical if hash(object) are identical.
+    """
+
+    def __init__(self, maxsize=0):
+        """Initialise queue with maximum number of items.
+
+        0 for infinite queue
+        """
+        super().__init__(maxsize)
+        self.all_items = set()
+
+    def _put(self, item):
+        if item not in self.all_items:
+            super()._put(item)
+            self.all_items.add(item)
+
+
+class File:
+    """File on Dropbox.
+
+    Class required to make files hashable and track the owning member
+    """
+
+    def __init__(self, file, member):
+        """Initialise with unique ID and member ID."""
+        self.file = file
+        self.member = member
+
+    def __hash__(self):
+        """Make File hashable for use in sets."""
+        return hash(self.file.id)
+
+    def __eq__(self, other):
+        """Must implement __eq__ if we implement __hash__."""
+        try:
+            return self.file.id == other.file.id
+
+        except AttributeError:
+            return False
 
 
 def parse_args():
@@ -41,7 +86,9 @@ def parse_args():
     msg = 'logging level: DEBUG=10; INFO=20; WARNING=30; ERROR=40; FATAL=50'
     parser.add_argument('--loglevel', help=msg, default=20, type=int)
 
-    parser.add_argument('token', help='Dropbox Business access token')
+    msg = 'Dropbox Business access token. The environment variable '
+    'DROPBOX_TEAM_TOKEN is used if token is not supplied.'
+    parser.add_argument('-t', '--token', help=msg)
 
     args = parser.parse_args()
 
@@ -55,13 +102,18 @@ def parse_args():
 
     # Convert since to a datetime object
     if args.since:
-        since = datetime.strptime(args.since, '%Y-%m-%d')
+        args.since = datetime.strptime(args.since, '%Y-%m-%d')
 
-        if since > datetime.now():
+        if args.since > datetime.now():
             logging.error('"Since" date must not be later than today.')
             sys.exit(1)
 
-        args.since = since.replace(tzinfo=timezone.utc)
+    if not args.token:
+        try:
+            args.token = os.environ['DROPBOX_TEAM_TOKEN']
+
+        except KeyError:
+            raise ValueError('Dropbox Team token required')
 
     return args
 
@@ -92,98 +144,73 @@ def setup_logging(level=logging.INFO):
         handler.setFormatter(formatter)
 
 
-def get_members(headers, response=None):
-    """Generate Dropbox Businesss member ids.
+def get_members(team):
+    """Generate Dropbox Businesss members.
 
-    response is an example response payload for unit testing.
+    team is a dropbox.dropbox.DropboxTeam instance.
+    This function would not be necessary if the Dropbox Python SDK wasn't so
+    bad.  The Dropbox API should have named the function
+    team_members_list(limit=None) which would be a generator up to the number
+    of team members in limit.
     """
-    url = 'https://api.dropbox.com/1/team/members/list'
-    has_more = True
-    post_data = {}
+    members_list_result = team.team_members_list()
 
-    while has_more:
-        if response is None:
-            # Note that POST data must be submitted as application/json
-            r = requests.post(url, headers=headers, json=post_data)
+    for member in members_list_result.members:
+        yield member
 
-            # Raise an exception if status is not OK
-            r.raise_for_status()
+    while members_list_result.has_more:
+        cursor = members_list_result.cursor
+        members_list_result = team.team_members_list_continue(cursor)
 
-            response = r.json()
-
-            # Set cursor in the POST data for the next request
-            post_data['cursor'] = response['cursor']
-
-        for member in response['members']:
-            profile = member['profile']
-            logging.info('Found {} {} \t\t{}'.format(
-                profile['given_name'],
-                profile['surname'],
-                profile['member_id'],
-                ))
-
-            yield profile['member_id']
-
-        # Stop looping if no more members are available
-        has_more = response['has_more']
-
-        # Clear the response
-        response = None
+        for member in members_list_result.members:
+            yield member
 
 
-def get_metadata(headers, member_id, response=None):
-    """Generate metadata for each path for the given member.
+def get_file_list(team, member, args):
+    """Generate files for the given member.
 
-    member_id is the Dropbox member id
-    response is an example response payload for unit testing
+    team is a dropbox.dropbox.DropboxTeam
+    member is a dropbox.team.TeamMemberProfile
     """
-    headers['X-Dropbox-Perform-As-Team-Member'] = member_id
-    url = 'https://api.dropbox.com/1/delta'
-    has_more = True
-    post_data = {}
+    user = team.as_user(member.profile.team_member_id)
+    folder_list = user.files_list_folder("", True)
 
-    while has_more:
-        # If ready-made response is not supplied, poll Dropbox
-        if response is None:
-            logging.debug('Requesting delta with {}'.format(post_data))
+    for entry in folder_list.entries:
+        f = filter_file(entry, args)
+        if f:
+            yield f
 
-            # Note that POST data must be sent as
-            # application/x-www-form-urlencoded
-            r = requests.post(url, headers=headers, data=post_data)
+    while folder_list.has_more:
+        folder_list = user.files_list_folder_continue(folder_list.cursor)
 
-            # Warn if receive 403 response
-            if r.status_code == 403:
-                msg = '403 not allowed for member {}'
-                logging.warning(msg.format(member_id))
-                break
+        for entry in folder_list.entries:
+            f = filter_file(entry, args)
+            if f:
+                yield f
 
-            # Raise an exception if status is not OK
-            r.raise_for_status()
 
-            response = r.json()
+def filter_file(file, args):
+    """Return the file if is passes the filters specified in args."""
+    try:
+        # Ignore large files
+        if file.size > 1e6 * args.maxsize:
+            logging.debug('Too large: ' + file.path_display)
+            return
 
-            # Set cursor in the POST data for the next request
-            post_data['cursor'] = response['cursor']
+    except AttributeError:
+        # File is a not a file e.g. it's a directory
+        logging.debug('Not a file: ' + file.path_display)
+        return
 
-        # Iterate path items
-        for lowercase_path, metadata in response['entries']:
+    # Ignore files modified before given date
+    if args.since is not None:
+        if args.since > file.server_modified:
+            logging.debug('File too old: ' + file.path_display)
+            return
 
-            if metadata is None:
-                msg = 'metadata is None. path: {}; metadata: {}'
-                logging.warning(msg.format(lowercase_path, metadata))
-                continue
-
-            # Remove unprintable characters
-            metadata['path'] = remove_unprintable(metadata['path'])
-
-            logging.debug('Found ' + metadata['path'])
-            yield metadata
-
-        # Stop looping if no more items are available
-        has_more = response['has_more']
-
-        # Clear the response
-        response = None
+    # Return all other files
+    logging.debug('File queued: ' + file.path_display)
+    return file
 
 
 def remove_unprintable(text):
@@ -191,60 +218,12 @@ def remove_unprintable(text):
     return ''.join(c for c in text if c in string.printable)
 
 
-def parse_metadata(metadata, since=None, maxsize=MAXFILESIZE):
-    """Parse Dropbox path metadata."""
-    # Return shared folders for storing
-    if metadata['is_dir']:
-        try:
-            folder_id = metadata['shared_folder']['shared_folder_id']
-            path = '/' + os.path.basename(metadata['path'])
-            return {folder_id: path}
-
-        except KeyError:
-            # We do not need to parse unshared folders
-            return
-
-    # Ignore large files
-    if metadata['bytes'] > 1e6 * maxsize:
-        return
-
-    # Only return those modified since given date
-    if since is not None:
-        last_mod = datetime.strptime(metadata['modified'], DATE_FORMAT)
-        if since > last_mod:
-            return
-
-    logging.debug('Marked for download ' + metadata['path'])
-    return metadata
-
-
-def download_file(headers, member_id, path):
-    """Return the data for the given file."""
-    url = 'https://api-content.dropbox.com/1/files/auto' + path
-    headers['X-Dropbox-Perform-As-Team-Member'] = member_id
-
-    r = requests.get(url, headers=headers)
-
-    # Raise an exception if status code is not OK
-    r.raise_for_status()
-
-    return r.content
-
-
-def save_file(headers, member_id, root, metadata):
+def save_file(team, file, root):
     """Save the file under the root directory given."""
-    logging.debug(metadata)
-
-    try:
-        shared_path = metadata['shared_path']
-
-    except KeyError:
-        shared_path = metadata['path']
-
-    logging.info('Saving ' + shared_path)
+    logging.info('Saving ' + file.file.path_display)
 
     # Ignore leading slash in path
-    local_path = os.path.join(root, shared_path[1:])
+    local_path = os.path.join(root, file.file.path_display)
 
     # Create output directory if it does not exist
     try:
@@ -256,21 +235,8 @@ def save_file(headers, member_id, root, metadata):
         return
 
     try:
-        # Open file with x flag for exclusive open
-        # which can raise a FileExistsError
-        with open(local_path, 'xb') as fout:
-            try:
-                fout.write(download_file(headers, member_id, metadata['path']))
-            except Exception:
-                logging.exception('Could not download ' + shared_path)
-
-            # Set the file modification time
-            mtime = datetime.strptime(metadata['modified'],
-                                      DATE_FORMAT).timestamp()
-            os.utime(local_path, (mtime, mtime))
-
-    except FileExistsError:
-        logging.debug('File exists: ' + local_path)
+        user = team.as_user(file.member.member_id)
+        user.files_download_to_file(local_path, file.file.path_display)
 
     except Exception:
         logging.exception('Exception whilst saving ' + local_path)
@@ -284,72 +250,22 @@ def list_and_save():
     logging.debug('args = ' + str(args))
     logging.info('{} version {}'.format(__file__, __version__))
 
-    # Send the OAuth2 authorization token with every request
-    headers = {'Authorization': 'Bearer ' + args.token}
+    team = dropbox.DropboxTeam(args.token)
 
-    # Use a dict with shared folder ids as keys and shared folder paths as
-    # values
-    shared_id_to_path = {}
+    # Sycnhonised Queue of File objects to download
+    files = SetQueue()
 
     # Get a list of Dropbox Business members
-    # This is a single POST request so does not parallelise
-    for member_id in get_members(headers):
+    for member in get_members(team):
 
         # For each member, get a list of their files
-        logging.info('Getting paths for ' + member_id)
-        for metadata in get_metadata(headers, member_id):
+        logging.info('Getting paths for ' + member.profile.name.display_name)
+        for file in get_file_list(team, member, args):
+            files.put(File(file, member))
 
-            # Clean metadata into shared folders or paths
-            metadata = parse_metadata(metadata, args.since, args.maxsize)
-
-            if not metadata:
-                continue
-
-            if len(metadata) == 1:
-                # If metadata is only 1 key-value pair long, it must be a
-                # shared folder, not a file
-                try:
-                    # Iterate over the keys (even though there is only one)
-                    for shared_id in metadata:
-                        # Warn if the path already registered for the
-                        # shared folder is equal to the path given in this
-                        # metadata dict. Dropbox sometimes changes the case
-                        # for an unknown reason
-                        shared = shared_id_to_path[shared_id].lower()
-                        meta_id = metadata[shared_id].lower()
-
-                        if shared != meta_id:
-                            msg = 'Shared ID {} not equal to metadata ID {}'
-                            logging.warning(msg.format(shared, meta_id))
-
-                except KeyError:
-                    # shared_id was not recognised so add it to the dict
-                    shared_id_to_path.update(metadata)
-
-                continue
-
-            # metadata is for a file
-            try:
-                # Assume that the file is in a shared folder
-                shared_id = metadata['parent_shared_folder_id']
-                # Correct the path relative to shared path
-                try:
-                    index = metadata['path'].index(
-                        shared_id_to_path[shared_id])
-
-                except ValueError:
-                    msg = 'Cannot convert to shared path: {} not found in {}'
-                    logging.error(msg.format(shared_id_to_path[shared_id],
-                                  metadata['path']))
-                    continue
-
-                metadata['shared_path'] = metadata['path'][index:]
-
-            except KeyError:
-                # File is not in a shared folder so save as it is
-                pass
-
-            save_file(headers, member_id, args.out, metadata)
+    # Download each file
+    for file in files:
+        save_file(team, file, args.out)
 
 
 def main():
