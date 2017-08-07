@@ -7,7 +7,6 @@ See README.md for full instructions.
 import argparse
 from datetime import date, datetime
 from functools import wraps
-from itertools import repeat
 import logging
 import os
 import string
@@ -172,7 +171,7 @@ def limit(limit: int=None):
     return decorator
 
 
-def list_members(team: dropbox.dropbox.DropboxTeam) \
+def get_members(team: dropbox.dropbox.DropboxTeam) \
                 -> Iterator[dropbox.team.TeamMemberProfile]:
     """Generate Dropbox Businesss members.
 
@@ -193,62 +192,56 @@ def list_members(team: dropbox.dropbox.DropboxTeam) \
             yield member
 
 
+# TDOO: Remove limit when finished debugging
 @limit(10)
-def list_files(team: dropbox.DropboxTeam,
-               member: dropbox.team.TeamMemberInfo,
-               args: argparse.Namespace,
-               dir_: str='') -> Iterator[File]:
+def get_files(team: dropbox.DropboxTeam,
+              member: dropbox.team.TeamMemberInfo,
+              args: argparse.Namespace) -> Iterator[File]:
     """Generate files for the given member."""
-    logger = logging.getLogger('backup.list_files')
+    logger = logging.getLogger('backup.get_files')
+    logger.info('Listing files for ' + member.profile.name.display_name)
+
     user = team.as_user(member.profile.team_member_id)
     # Do not use recursive=True because it causes a Dropbox server error
     # See Dropbox ticket #6264685
-    logger.info(f'Listing {dir_}')
-    folder_list = user.files_list_folder(dir_)
+    folder_list = user.files_list_folder('', True)
 
     for entry in folder_list.entries:
-        try:
-            if should_download(entry, args):
-                print(entry.path_display)
-                yield File(entry, member)
-
-        except AttributeError:
-            # Entry does not have the attributes of a file, so
-            # treat as a folder
-            yield from list_files(team, member, args, entry.path_display)
+        logger.debug('Found ' + entry.path_display)
+        yield File(entry, member)
 
     while folder_list.has_more:
         folder_list = user.files_list_folder_continue(folder_list.cursor)
 
         for entry in folder_list.entries:
-            try:
-                if should_download(entry, args):
-                    print(entry.path_display)
-                    yield File(entry, member)
-
-            except AttributeError:
-                # Entry does not have the attributes of a file, so
-                # treat as a folder
-                yield from list_files(team, member, args, entry.path_display)
+            logger.debug('Found ' + entry.path_display)
+            yield File(entry, member)
 
 
 def should_download(file: dropbox.files.Metadata,
                     args: argparse.Namespace) -> bool:
     """Return the True if file passes the filters specified in args."""
     logger = logging.getLogger('backup.should_download')
-    # Ignore large files
-    if file.size > 1e6 * args.maxsize:
-        logger.debug('Too large: ' + file.path_display)
-        return False
 
-    # Ignore files modified before given date
-    if args.since is not None:
-        if args.since > file.server_modified:
-            logger.debug('File too old: ' + file.path_display)
+    try:
+        # Ignore large files
+        if file.size > 1e6 * args.maxsize:
+            logger.debug('Too large: ' + file.path_display)
             return False
 
+        # Ignore files modified before given date
+        if args.since is not None:
+            if args.since > file.server_modified:
+                logger.debug('File too old: ' + file.path_display)
+                return False
+
+    except AttributeError:
+        # Not a file.  Don't mark to download
+        logger.debug('Not a file: ' + file.path_display)
+        return False
+
     # Return all other files
-    logger.debug('File queued: ' + file.path_display)
+    logger.info('File queued: ' + file.path_display)
     return True
 
 
@@ -295,26 +288,27 @@ def list_and_save(args: argparse.Namespace) -> None:
     file_queue = SetQueue[File]()
 
     # Get a list of Dropbox Business members
-    # TODO: remove list()
-    members = list(list_members(team))
-    print([member.profile.name.display_name for member in members])
+    # TODO: remove list() and print()
+    members = list(get_members(team))
+    for member in members:
+        print(member.profile.name.display_name)
 
-    # files = map(list_files, repeat(team), members, repeat(args))
+    all_files = (get_files(team, member, args) for member in members)
+    files = (f for f in all_files if should_download(f))
+
     for member in members:
         print('Listing files for', member.profile.name.display_name)
-        for f in list_files(team, member, args):
+        for f in get_files(team, member, args):
             file_queue.put(f)
 
     # Put the files in a SetQueue to ensure no duplicates and prevent
     # more than one thread at any time mutating the list of files
-    # map(file_queue.put, files)
+    (file_queue.put(f) for f in files)
 
     # Download each file
     while True:
         try:
             save_file(team, file_queue.get(), args.out)
-            # map(save_file, repeat(team), (f for f in file_queue.get()),
-            #     repeat(args.out))
 
         except queue.Empty:
             logger.info('File queue is empty')
