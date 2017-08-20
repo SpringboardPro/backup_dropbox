@@ -6,6 +6,7 @@ See README.md for full instructions.
 
 import argparse
 from datetime import date, datetime
+import concurrent.futures as cf
 from functools import partial, wraps
 import logging
 import os
@@ -17,7 +18,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.0.0'
+__version__ = '2.0.1'
 
 MAX_FILE_SIZE = 100  # Max file size in MB
 LOGGING_FILENAME = 'backup.log'
@@ -303,9 +304,11 @@ def list_and_save(args: argparse.Namespace) -> None:
     _should_download = partial(should_download, args=args)
     _enqueue_files = partial(enqueue_files, q=file_queue, getter=_get_files,
                              predicate=_should_download)
+
     #  Enqueue the files
-    #  Use map() for easier transition to concurrent map
-    list(map(_enqueue_files, members))
+    with cf.ThreadPoolExecutor() as enqueue_executor:
+        enqueue_executor.map(_enqueue_files, members)
+
     logger.info(f'Queue legnth = {file_queue.qsize()}')
 
     # Put a poison pill in the Queuue to stop it
@@ -315,7 +318,8 @@ def list_and_save(args: argparse.Namespace) -> None:
     _download = partial(download, team=team, root=args.out)
 
     # Use iter() to repeatedly call q.get() until it returns None
-    list(map(_download, iter(file_queue.get, None)))
+    with cf.ThreadPoolExecutor(max_workers=4) as download_executor:
+        download_executor.map(_download, iter(file_queue.get, None))
 
 
 def main() -> int:
