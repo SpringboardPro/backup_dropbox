@@ -1,31 +1,20 @@
 """Unit tests for the backup module."""
 
-from datetime import datetime, timezone
 import logging
 import unittest
 
 import backup
 
 
-class TestGetMembers(unittest.TestCase):
+class TestSetQueue(unittest.TestCase):
 
-    def test_get_members(self):
-        resp = {'has_more': False,
-                'members': [
-                    {'profile':
-                     {'member_id': 'dbmid:AAB_27FUspCzP-DA80EP4r4sr4kn8Uj7h1g',
-                      'given_name': 'John',
-                      'surname': 'Smith'}},
-                    {'profile':
-                     {'member_id': 'dbmid:Ak0W11tPO0Z_4wsBvbNyNQsqxBQcT9ccWOQ',
-                      'given_name': 'Jane',
-                      'surname': 'Example'}}]}
-
-        expected = ('dbmid:AAB_27FUspCzP-DA80EP4r4sr4kn8Uj7h1g',
-                    'dbmid:Ak0W11tPO0Z_4wsBvbNyNQsqxBQcT9ccWOQ')
-
-        for i,  member_id in enumerate(backup.get_members(None, response=resp)):
-            self.assertEqual(expected[i], member_id)
+    def test_unique(self):
+        q = backup.SetQueue()
+        q.put(27)
+        q.put(17)
+        self.assertEqual(2, q.qsize())
+        q.put(27)
+        self.assertEqual(2, q.qsize())
 
 
 class TestRemoveUnprintable(unittest.TestCase):
@@ -33,16 +22,6 @@ class TestRemoveUnprintable(unittest.TestCase):
     def test_remove(self):
         input = 'some\u200c text'
         self.assertEqual('some text', backup.remove_unprintable(input))
-
-
-class TestDateFormat(unittest.TestCase):
-
-    def test(self):
-        expected = datetime(2015, 1, 21, 12, 00, 58, tzinfo=timezone.utc)
-
-        date_string = r'Wed, 21 Jan 2015 12:00:58 +0000'
-        actual = datetime.strptime(date_string, backup.DATE_FORMAT)
-        self.assertEqual(expected, actual)
 
 
 class TestLogging(unittest.TestCase):

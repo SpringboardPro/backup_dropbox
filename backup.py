@@ -6,14 +6,13 @@ See README.md for full instructions.
 
 import argparse
 from datetime import date, datetime
-from functools import wraps
-from itertools import chain
+from functools import partial, wraps
 import logging
 import os
 import string
 import sys
 import time
-from typing import Callable, Generic, Iterable, Iterator, Set, TypeVar
+from typing import Callable, Generic, Iterator, Set, TypeVar
 import queue
 
 import dropbox  # type: ignore
@@ -79,7 +78,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', action='version',
-                        version='%(prog)s ' + __version__)
+                        version=f'%(prog)s {__version__}')
 
     msg = 'select only files modified since date in YYYY-MM-DD format'
     parser.add_argument('--since', help=msg)
@@ -158,7 +157,7 @@ def setup_logging(level: int=logging.INFO) -> logging.Logger:
 
 def limit(limit: int):
     """Decorator to limit number of yielded items."""
-    logger = logging.getLogger('limit')
+    logger = logging.getLogger('backup.limit')
     # limit function above is used to take the numberical argument
     # decorator() is the real decorator
 
@@ -170,7 +169,7 @@ def limit(limit: int):
                     yield item
 
                 else:
-                    logger.info(f'Breaking at {}')
+                    logger.info(f'Breaking at {i}')
                     break
 
         return wrapper
@@ -198,26 +197,33 @@ def get_members(team: dropbox.dropbox.DropboxTeam) \
             yield member
 
 
-@limit(300)
-def get_files(team: dropbox.DropboxTeam,
-              member: dropbox.team.TeamMemberInfo,
+def enqueue_files(member: dropbox.team.TeamMemberProfile, q: queue.Queue,
+                  getter: Callable, predicate: Callable) -> None:
+    """Put files for member in the queue if predicate(file) is True."""
+    for f in getter(member):
+        if predicate(f):
+            q.put(f)
+
+
+def get_files(member: dropbox.team.TeamMemberInfo,
+              team: dropbox.DropboxTeam,
               args: argparse.Namespace) -> Iterator[File]:
     """Generate files for the given member."""
     logger = logging.getLogger('backup.get_files')
-    logger.info('Listing files for ' + member.profile.name.display_name)
+    logger.info(f'Listing files for {member.profile.name.display_name}')
 
     user = team.as_user(member.profile.team_member_id)
     folder_list = user.files_list_folder('', True)
 
     for entry in folder_list.entries:
-        logger.debug('Found ' + entry.path_display)
+        logger.debug(f'Found {entry.path_display}')
         yield File(entry, member)
 
     while folder_list.has_more:
         folder_list = user.files_list_folder_continue(folder_list.cursor)
 
         for entry in folder_list.entries:
-            logger.debug('Found ' + entry.path_display)
+            logger.debug(f'Found {entry.path_display}')
             yield File(entry, member)
 
 
@@ -233,10 +239,9 @@ def should_download(file: dropbox.files.Metadata,
             return False
 
         # Ignore files modified before given date
-        if args.since is not None:
-            if args.since > file.file.server_modified:
-                logger.debug(f'File too old: {file}')
-                return False
+        if args.since is not None and args.since > file.file.server_modified:
+            logger.debug(f'File too old: {file}')
+            return False
 
     except AttributeError:
         # Not a file.  Don't mark to download
@@ -244,7 +249,7 @@ def should_download(file: dropbox.files.Metadata,
         return False
 
     # Return all other files
-    logger.info('fFile queued: {file}')
+    logger.info(f'File queued: {file}')
     return True
 
 
@@ -253,15 +258,15 @@ def remove_unprintable(text: str) -> str:
     return ''.join(c for c in text if c in string.printable)
 
 
-def save_file(team: dropbox.dropbox.DropboxTeam,
-              file: File, root: str) -> None:
+def download(file: File, team: dropbox.dropbox.DropboxTeam,
+             root: str) -> None:
     """Save the file under the root directory given."""
-    logger = logging.getLogger('backup.save_file')
+    logger = logging.getLogger('backup.download')
     printable_path = remove_unprintable(file.file.path_display)
-    logger.info('Saving ' + printable_path)
 
-    # Ignore leading slash in path
-    local_path = os.path.join(root, printable_path)
+    # Remove the leading slash from printable_path
+    local_path = os.path.join(root, printable_path[1:])
+    logger.info(f'Saving {local_path}')
 
     # Create output directory if it does not exist
     try:
@@ -273,11 +278,11 @@ def save_file(team: dropbox.dropbox.DropboxTeam,
         return
 
     try:
-        user = team.as_user(file.member.member_id)
+        user = team.as_user(file.member.profile.team_member_id)
         user.files_download_to_file(local_path, file.file.path_display)
 
     except Exception:
-        logger.exception('Exception whilst saving ' + local_path)
+        logger.exception(f'Exception whilst saving {local_path}')
 
 
 def list_and_save(args: argparse.Namespace) -> None:
@@ -287,38 +292,30 @@ def list_and_save(args: argparse.Namespace) -> None:
 
     team = dropbox.DropboxTeam(args.token)
 
+    # Create a generator of members
+    members = (m for m in get_members(team))
+
     # Sycnhonised Queue of File objects to download
     file_queue = SetQueue[File]()
 
-    #  Create a generator (for each member) of file generators
-    file_gen = (get_files(team, member, args) for member in get_members(team))
-    # Chain the generators together
-    all_files = chain.from_iterable(file_gen)
-
-    # Put the files in a SetQueue to ensure no duplicates and prevent
-    # more than one thread at any time mutating the list of files
-    [file_queue.put(f) for f in all_files if should_download(f, args)]
+    # Create partial functions to save fixed arguments
+    _get_files = partial(get_files, team=team, args=args)
+    _should_download = partial(should_download, args=args)
+    _enqueue_files = partial(enqueue_files, q=file_queue, getter=_get_files,
+                             predicate=_should_download)
+    #  Enqueue the files
+    #  Use map() for easier transition to concurrent map
+    list(map(_enqueue_files, members))
+    logger.info(f'Queue legnth = {file_queue.qsize()}')
 
     # Put a poison pill in the Queuue to stop it
     file_queue.put(None)
 
     # Download each file
-    # TODO: Replace this with
-    # iter(save_file...)
-    # map(save_file, repeat(team), iter(q.get, None), repeat(args.out))
-    while True:
-        f = file_queue.get()
-        if f is None:
-            file_queue.task_done()
-            break
+    _download = partial(download, team=team, root=args.out)
 
-        save_file(team, f, args.out)
-        file_queue.task_done()
-
-    # Block until all tasks are done
-    logger.info('Waiting for queued files to download')
-    file_queue.join()
-    logger.info('Queued files done')
+    # Use iter() to repeatedly call q.get() until it returns None
+    list(map(_download, iter(file_queue.get, None)))
 
 
 def main() -> int:
