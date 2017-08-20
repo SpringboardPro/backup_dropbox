@@ -7,12 +7,13 @@ See README.md for full instructions.
 import argparse
 from datetime import date, datetime
 from functools import wraps
+from itertools import chain
 import logging
 import os
 import string
 import sys
 import time
-from typing import Callable, Generic, Iterator, Set, TypeVar
+from typing import Callable, Generic, Iterable, Iterator, Set, TypeVar
 import queue
 
 import dropbox  # type: ignore
@@ -69,6 +70,9 @@ class File:
 
         except AttributeError:
             return False
+
+    def __repr__(self):
+        return self.file.path_display
 
 
 def parse_args() -> argparse.Namespace:
@@ -152,10 +156,12 @@ def setup_logging(level: int=logging.INFO) -> logging.Logger:
     return logger
 
 
-def limit(limit: int=None):
+def limit(limit: int):
     """Decorator to limit number of yielded items."""
+    logger = logging.getLogger('limit')
     # limit function above is used to take the numberical argument
     # decorator() is the real decorator
+
     def decorator(function: Callable):
         @wraps(function)
         def wrapper(*args, **kwargs):
@@ -164,7 +170,7 @@ def limit(limit: int=None):
                     yield item
 
                 else:
-                    print('Breaking at ', i)
+                    logger.info(f'Breaking at {}')
                     break
 
         return wrapper
@@ -192,8 +198,7 @@ def get_members(team: dropbox.dropbox.DropboxTeam) \
             yield member
 
 
-# TDOO: Remove limit when finished debugging
-@limit(10)
+@limit(300)
 def get_files(team: dropbox.DropboxTeam,
               member: dropbox.team.TeamMemberInfo,
               args: argparse.Namespace) -> Iterator[File]:
@@ -202,8 +207,6 @@ def get_files(team: dropbox.DropboxTeam,
     logger.info('Listing files for ' + member.profile.name.display_name)
 
     user = team.as_user(member.profile.team_member_id)
-    # Do not use recursive=True because it causes a Dropbox server error
-    # See Dropbox ticket #6264685
     folder_list = user.files_list_folder('', True)
 
     for entry in folder_list.entries:
@@ -225,23 +228,23 @@ def should_download(file: dropbox.files.Metadata,
 
     try:
         # Ignore large files
-        if file.size > 1e6 * args.maxsize:
-            logger.debug('Too large: ' + file.path_display)
+        if file.file.size > 1e6 * args.maxsize:
+            logger.debug(f'Too large: {file}')
             return False
 
         # Ignore files modified before given date
         if args.since is not None:
-            if args.since > file.server_modified:
-                logger.debug('File too old: ' + file.path_display)
+            if args.since > file.file.server_modified:
+                logger.debug(f'File too old: {file}')
                 return False
 
     except AttributeError:
         # Not a file.  Don't mark to download
-        logger.debug('Not a file: ' + file.path_display)
+        logger.debug(f'Not a file: {file}')
         return False
 
     # Return all other files
-    logger.info('File queued: ' + file.path_display)
+    logger.info('fFile queued: {file}')
     return True
 
 
@@ -287,32 +290,35 @@ def list_and_save(args: argparse.Namespace) -> None:
     # Sycnhonised Queue of File objects to download
     file_queue = SetQueue[File]()
 
-    # Get a list of Dropbox Business members
-    # TODO: remove list() and print()
-    members = list(get_members(team))
-    for member in members:
-        print(member.profile.name.display_name)
-
-    all_files = (get_files(team, member, args) for member in members)
-    files = (f for f in all_files if should_download(f))
-
-    for member in members:
-        print('Listing files for', member.profile.name.display_name)
-        for f in get_files(team, member, args):
-            file_queue.put(f)
+    #  Create a generator (for each member) of file generators
+    file_gen = (get_files(team, member, args) for member in get_members(team))
+    # Chain the generators together
+    all_files = chain.from_iterable(file_gen)
 
     # Put the files in a SetQueue to ensure no duplicates and prevent
     # more than one thread at any time mutating the list of files
-    (file_queue.put(f) for f in files)
+    [file_queue.put(f) for f in all_files if should_download(f, args)]
+
+    # Put a poison pill in the Queuue to stop it
+    file_queue.put(None)
 
     # Download each file
+    # TODO: Replace this with
+    # iter(save_file...)
+    # map(save_file, repeat(team), iter(q.get, None), repeat(args.out))
     while True:
-        try:
-            save_file(team, file_queue.get(), args.out)
-
-        except queue.Empty:
-            logger.info('File queue is empty')
+        f = file_queue.get()
+        if f is None:
+            file_queue.task_done()
             break
+
+        save_file(team, f, args.out)
+        file_queue.task_done()
+
+    # Block until all tasks are done
+    logger.info('Waiting for queued files to download')
+    file_queue.join()
+    logger.info('Queued files done')
 
 
 def main() -> int:

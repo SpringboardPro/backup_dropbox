@@ -1,46 +1,29 @@
 import os
-from pprint import pprint
 from time import time
 from typing import Iterator
 
 import dropbox
 
 
-def t():
+def t() -> str:
     """Return string of elapsed time since start in seconds."""
     return '{:.2f}:'.format(time() - start)
 
 
-def get_metadata(obj):
-    return {attr: getattr(obj, attr) for attr in
-            dir(obj) if not attr.startswith('_')}
-
-
-def should_download(file: dropbox.files.Metadata) -> bool:
-    """Return the True if file passes the filters specified in args."""
-    # Ignore large files
-    if file.size > 10000:
-        print('Too large: ' + file.path_display)
-        return False
-
-    return True
-
-
-def list_files(user: dropbox.dropbox.Dropbox,
-               dir_: str='') -> Iterator[dropbox.files.Metadata]:
+def list_files(user: dropbox.dropbox.Dropbox, dir_: str='') \
+               -> Iterator[dropbox.files.Metadata]:
     """Recursively walk the folder tree, yielding files."""
     print('Listing files for', dir_)
-    folder_list = user.files_list_folder(dir_)
+    folder_list = user.files_list_folder(dir_, True)
 
     for entry in folder_list.entries:
-        try:
-            if should_download(entry):
-                yield entry
+        yield entry
 
-        except AttributeError:
-            # Entry does not have the attributes of a file, so
-            # treat as a folder
-            yield from list_files(user, entry.path_display)
+    while folder_list.has_more:
+        folder_list = user.files_list_folder_continue(folder_list.cursor)
+
+        for entry in folder_list.entries:
+            yield entry
 
 
 start = time()
@@ -54,6 +37,6 @@ print(t(), 'Listing files for', member.profile.name.display_name)
 user = team.as_user(member.profile.team_member_id)
 
 print(t(), 'Calling files_list_folder')
-print([f'OK{f.path_display}' for f in list_files(user)])
 
-print([f'OK{f.path_display}' for f in list_files(user, '/Sandbox')])
+for i, f in enumerate(list_files(user)):
+    print(f'{i}: {f.path_display}')

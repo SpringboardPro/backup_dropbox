@@ -11,14 +11,14 @@ def t():
     return '{:.2f}:'.format(time() - start)
 
 
-def list_files(token: str,
-               member_id: str) -> Iterator[dropbox.files.Metadata]:
+def list_files(token: str, member_id: str, limit: int=1000) \
+               -> Iterator[dropbox.files.Metadata]:
     """Recursively walk the folder tree, yielding files."""
     headers = {'Authorization': 'Bearer ' + token,
                'Dropbox-API-Select-User': member_id}
     list_folder = 'https://api.dropboxapi.com/2/files/list_folder'
     list_folder_continue = 'https://api.dropboxapi.com/2/files/list_folder/continue'
-    post_data = {'path': '', 'recursive': True}
+    post_data = {'path': '', 'recursive': True} #, 'limit': limit}
 
     print(f'Requesting {list_folder} with {post_data}')
     r = requests.post(list_folder, headers=headers, json=post_data)
@@ -29,9 +29,8 @@ def list_files(token: str,
         yield entry
 
     post_data = {'cursor': response['cursor']}
-    has_more = response['has_more']
 
-    while has_more:
+    while response['has_more']:
         print(f'Requesting {list_folder_continue}')
         r = requests.post(list_folder_continue, headers=headers,
                           json=post_data)
@@ -42,7 +41,6 @@ def list_files(token: str,
             yield entry
 
         post_data['cursor'] = response['cursor']
-        has_more = response['has_more']
 
 
 start = time()
@@ -55,5 +53,5 @@ member = members_list.members[0]
 
 print(t(), 'Listing files for', member.profile.name.display_name)
 
-for entry in list_files(token, member.profile.team_member_id):
-    print('Found ' + entry['path_display'])
+for i, entry in enumerate(list_files(token, member.profile.team_member_id)):
+    print(f"{i}: found {entry['path_display']}")
