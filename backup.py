@@ -18,7 +18,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.0.1'
+__version__ = '2.0.2'
 
 MAX_FILE_SIZE = 100  # Max file size in MB
 LOGGING_FILENAME = 'backup.log'
@@ -90,15 +90,14 @@ def parse_args() -> argparse.Namespace:
     msg = 'path of output directory. Default is "yyyy-mm-dd backup".'
     parser.add_argument('--out', help=msg)
 
-    msg = 'logging level: DEBUG=10; INFO=20; WARNING=30; ERROR=40; FATAL=50'
+    msg = (f'logging level: DEBUG={logging.DEBUG}; INFO={logging.INFO}; '
+           f'WARNING={logging.WARNING}; ERROR={logging.ERROR}; '
+           f'FATAL={logging.FATAL}')
     parser.add_argument('--loglevel', help=msg, default=20, type=int)
 
-    msg = 'Dropbox Business access token. The environment variable '
-    'DROPBOX_TEAM_TOKEN is used if token is not supplied.'
+    msg = ('Dropbox Business access token. The environment variable '
+           'DROPBOX_TEAM_TOKEN is used if token is not supplied.')
     parser.add_argument('--token', help=msg)
-
-    msg = 'Limit number of files to download per user.'
-    parser.add_argument('--limit', type=int, help=msg)
 
     args = parser.parse_args()
 
@@ -170,7 +169,7 @@ def limit(limit: int):
                     yield item
 
                 else:
-                    logger.info(f'Breaking at {i}')
+                    logger.info(f'Breaking at {i} due to limit={limit}')
                     break
 
         return wrapper
@@ -241,7 +240,7 @@ def should_download(file: dropbox.files.Metadata,
 
         # Ignore files modified before given date
         if args.since is not None and args.since > file.file.server_modified:
-            logger.debug(f'File too old: {file}')
+            logger.debug(f'Too old: {file}')
             return False
 
     except AttributeError:
@@ -250,7 +249,7 @@ def should_download(file: dropbox.files.Metadata,
         return False
 
     # Return all other files
-    logger.info(f'File queued: {file}')
+    logger.debug(f'Queued: {file}')
     return True
 
 
@@ -299,27 +298,29 @@ def list_and_save(args: argparse.Namespace) -> None:
     # Sycnhonised Queue of File objects to download
     file_queue = SetQueue[File]()
 
-    # Create partial functions to save fixed arguments
+    # Create partial functions to save invariant arguments
     _get_files = partial(get_files, team=team, args=args)
     _should_download = partial(should_download, args=args)
     _enqueue_files = partial(enqueue_files, q=file_queue, getter=_get_files,
                              predicate=_should_download)
 
+    logger.info('Getting filenames.  This can take a few minutes...')
     #  Enqueue the files
-    with cf.ThreadPoolExecutor() as enqueue_executor:
-        enqueue_executor.map(_enqueue_files, members)
+    with cf.ThreadPoolExecutor() as executor:
+        executor.map(_enqueue_files, members)
 
-    logger.info(f'Queue legnth = {file_queue.qsize()}')
+    logger.info(f'Queue length = {file_queue.qsize()}')
 
     # Put a poison pill in the Queuue to stop it
     file_queue.put(None)
 
-    # Download each file
+    # Create a partial function for invariant arguments
     _download = partial(download, team=team, root=args.out)
 
-    # Use iter() to repeatedly call q.get() until it returns None
-    with cf.ThreadPoolExecutor(max_workers=4) as download_executor:
-        download_executor.map(_download, iter(file_queue.get, None))
+    with cf.ThreadPoolExecutor(max_workers=8) as executor:
+        # Download each file
+        # Use iter() to repeatedly call q.get() until it returns None
+        executor.map(_download, iter(file_queue.get, None))
 
 
 def main() -> int:
