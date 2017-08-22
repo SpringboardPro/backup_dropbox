@@ -208,22 +208,18 @@ def enqueue(member: dropbox.team.TeamMemberProfile, q: queue.Queue,
             q.put(f)
 
 
-def dequeue(q: queue.Queue, downloader: Callable[[File], None]) -> None:
-    """Download files in queue until q.get() returns None."""
-    while True:
-        file = q.get()
-
-        if file is None:
-            break
-
-        downloader(file)
+def dequeue(q: queue.Queue, callback: Callable[[File], None]) -> None:
+    """Call callback on each item in queue until q.get() returns None."""
+    for item in iter(q.get, None):
+        callback(item)
 
 
 def get_files(member: dropbox.team.TeamMemberInfo,
               team: dropbox.DropboxTeam) -> Iterator[File]:
     """Generate files for the given member."""
     logger = logging.getLogger('backup.get_files')
-    logger.info(f'Listing files for {member.profile.name.display_name}')
+    display_name = member.profile.name.display_name
+    logger.info(f'Listing files for {display_name}')
 
     user = team.as_user(member.profile.team_member_id)
     folder_list = user.files_list_folder('', True)
@@ -239,7 +235,7 @@ def get_files(member: dropbox.team.TeamMemberInfo,
             logger.debug(f'Found {entry.path_display}')
             yield File(entry, member)
 
-    logger.info(f'No more files for {member.profile.name.display_name}')
+    logger.info(f'No more files for {display_name}')
 
 
 def should_download(file: dropbox.files.Metadata,
