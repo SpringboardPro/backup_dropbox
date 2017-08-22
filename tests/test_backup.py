@@ -16,6 +16,15 @@ class TestSetQueue(unittest.TestCase):
         q.put(27)
         self.assertEqual(2, q.qsize())
 
+    def test_nones(self):
+        """Allow multiple Nones for sentinels to stop multiple threads."""
+        q = backup.SetQueue()
+        q.put(27)
+        q.put(None)
+        self.assertEqual(2, q.qsize())
+        q.put(None)
+        self.assertEqual(3, q.qsize())
+
 
 class TestRemoveUnprintable(unittest.TestCase):
 

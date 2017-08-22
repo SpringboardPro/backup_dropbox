@@ -6,7 +6,7 @@ See README.md for full instructions.
 
 import argparse
 from datetime import date, datetime
-import concurrent.futures as cf
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
 import logging
 import os
@@ -18,9 +18,11 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.0.2'
+__version__ = '2.0.3'
 
 MAX_FILE_SIZE = 100  # Max file size in MB
+DOWNLOAD_THREADS = 8
+MAX_QUEUE_SIZE = 100_000
 LOGGING_FILENAME = 'backup.log'
 
 # Type for mypy generics
@@ -42,7 +44,7 @@ class SetQueue(queue.Queue, Generic[T]):
         self.all_items = set()  # type: Set[T]
 
     def _put(self, item: T) -> None:
-        if item not in self.all_items:
+        if item not in self.all_items or item is None:
             super()._put(item)
             self.all_items.add(item)
 
@@ -161,7 +163,7 @@ def limit(limit: int):
     # limit function above is used to take the numberical argument
     # decorator() is the real decorator
 
-    def decorator(function: Callable):
+    def decorator(function):
         @wraps(function)
         def wrapper(*args, **kwargs):
             for i, item in enumerate(function(*args, **kwargs)):
@@ -197,17 +199,28 @@ def get_members(team: dropbox.dropbox.DropboxTeam) \
             yield member
 
 
-def enqueue_files(member: dropbox.team.TeamMemberProfile, q: queue.Queue,
-                  getter: Callable, predicate: Callable) -> None:
-    """Put files for member in the queue if predicate(file) is True."""
+def enqueue(member: dropbox.team.TeamMemberProfile, q: queue.Queue,
+            getter: Callable[[dropbox.team.TeamMemberInfo], Iterator[File]],
+            predicate: Callable[[dropbox.files.Metadata], bool]) -> None:
+    """Enqueue files for member if predicate(file) is True."""
     for f in getter(member):
         if predicate(f):
             q.put(f)
 
 
+def dequeue(q: queue.Queue, downloader: Callable[[File], None]) -> None:
+    """Download files in queue until q.get() returns None."""
+    while True:
+        file = q.get()
+
+        if file is None:
+            break
+
+        downloader(file)
+
+
 def get_files(member: dropbox.team.TeamMemberInfo,
-              team: dropbox.DropboxTeam,
-              args: argparse.Namespace) -> Iterator[File]:
+              team: dropbox.DropboxTeam) -> Iterator[File]:
     """Generate files for the given member."""
     logger = logging.getLogger('backup.get_files')
     logger.info(f'Listing files for {member.profile.name.display_name}')
@@ -226,6 +239,8 @@ def get_files(member: dropbox.team.TeamMemberInfo,
             logger.debug(f'Found {entry.path_display}')
             yield File(entry, member)
 
+    logger.info(f'No more files for {member.profile.name.display_name}')
+
 
 def should_download(file: dropbox.files.Metadata,
                     args: argparse.Namespace) -> bool:
@@ -235,21 +250,21 @@ def should_download(file: dropbox.files.Metadata,
     try:
         # Ignore large files
         if file.file.size > 1e6 * args.maxsize:
-            logger.debug(f'Too large: {file}')
+            logger.log(5, f'Too large: {file}')
             return False
 
         # Ignore files modified before given date
         if args.since is not None and args.since > file.file.server_modified:
-            logger.debug(f'Too old: {file}')
+            logger.log(5, f'Too old: {file}')
             return False
 
     except AttributeError:
         # Not a file.  Don't mark to download
-        logger.debug(f'Not a file: {file}')
+        logger.log(5, f'Not a file: {file}')
         return False
 
     # Return all other files
-    logger.debug(f'Queued: {file}')
+    logger.debug(f'OK: {file}')
     return True
 
 
@@ -292,35 +307,30 @@ def list_and_save(args: argparse.Namespace) -> None:
 
     team = dropbox.DropboxTeam(args.token)
 
-    # Create a generator of members
-    members = (m for m in get_members(team))
-
     # Sycnhonised Queue of File objects to download
-    file_queue = SetQueue[File]()
+    file_queue = SetQueue[File](MAX_QUEUE_SIZE)
 
     # Create partial functions to save invariant arguments
-    _get_files = partial(get_files, team=team, args=args)
+    _get_files = partial(get_files, team=team)
     _should_download = partial(should_download, args=args)
-    _enqueue_files = partial(enqueue_files, q=file_queue, getter=_get_files,
-                             predicate=_should_download)
+    _downloader = partial(download, team=team, root=args.out)
 
-    logger.info('Getting filenames.  This can take a few minutes...')
-    #  Enqueue the files
-    with cf.ThreadPoolExecutor() as executor:
-        executor.map(_enqueue_files, members)
+    with ThreadPoolExecutor(DOWNLOAD_THREADS) as consumer_exec:
+        # Start the threads to download files
+        for _ in range(DOWNLOAD_THREADS):
+            consumer_exec.submit(dequeue, file_queue, _downloader)
 
-    logger.info(f'Queue length = {file_queue.qsize()}')
+        # Start the threads to get file names
+        with ThreadPoolExecutor() as producer_exec:
+            for member in get_members(team):
+                # Blocks if queue size > MAX_QUEUE_SIZE
+                producer_exec.submit(enqueue, member, file_queue, _get_files,
+                                     _should_download)
 
-    # Put a poison pill in the Queuue to stop it
-    file_queue.put(None)
-
-    # Create a partial function for invariant arguments
-    _download = partial(download, team=team, root=args.out)
-
-    with cf.ThreadPoolExecutor(max_workers=8) as executor:
-        # Download each file
-        # Use iter() to repeatedly call q.get() until it returns None
-        executor.map(_download, iter(file_queue.get, None))
+        # Tell the threads we're done
+        logger.info('Shutting down the consumer threads')
+        for _ in range(DOWNLOAD_THREADS):
+            file_queue.put(None)
 
 
 def main() -> int:
