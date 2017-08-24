@@ -3,12 +3,13 @@
 See README.md for full instructions.
 """
 
-
 import argparse
 from datetime import date, datetime
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial, wraps
+from functools import partial
+import json
 import logging
+import logging.config
 import os
 import string
 import sys
@@ -18,12 +19,11 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.0.3'
+__version__ = '2.1.0'
 
 MAX_FILE_SIZE = 100  # Max file size in MB
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
-LOGGING_FILENAME = 'backup.log'
 
 # Type for mypy generics
 T = TypeVar('T')
@@ -44,6 +44,7 @@ class SetQueue(queue.Queue, Generic[T]):
         self.all_items = set()  # type: Set[T]
 
     def _put(self, item: T) -> None:
+        #  Allow multiple Nones to be queued to act as sentinels
         if item not in self.all_items or item is None:
             super()._put(item)
             self.all_items.add(item)
@@ -52,12 +53,11 @@ class SetQueue(queue.Queue, Generic[T]):
 class File:
     """File on Dropbox.
 
-    Class required to make files hashable and track the owning member
+    Class required to make files hashable and track the owning member.
     """
 
     def __init__(self, file: dropbox.files.ListFolderResult,
                  member: dropbox.team.TeamMemberProfile) -> None:
-        """Initialise with unique ID and member ID."""
         self.file = file
         self.member = member
 
@@ -92,11 +92,6 @@ def parse_args() -> argparse.Namespace:
     msg = 'path of output directory. Default is "yyyy-mm-dd backup".'
     parser.add_argument('--out', help=msg)
 
-    msg = (f'logging level: DEBUG={logging.DEBUG}; INFO={logging.INFO}; '
-           f'WARNING={logging.WARNING}; ERROR={logging.ERROR}; '
-           f'FATAL={logging.FATAL}')
-    parser.add_argument('--loglevel', help=msg, default=20, type=int)
-
     msg = ('Dropbox Business access token. The environment variable '
            'DROPBOX_TEAM_TOKEN is used if token is not supplied.')
     parser.add_argument('--token', help=msg)
@@ -129,64 +124,54 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def setup_logging(level: int=logging.INFO) -> logging.Logger:
-    """Set up logging."""
-    logger = logging.getLogger('backup')
-    logger.setLevel(level)
+def setup_logging() -> None:
+    DEFAULT_LOGGING = {
+        "version": 1,
+        "formatters": {
+            "standard": {
+                "format": "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
+            },
+            "brief": {
+                "format": "%(asctime)s %(levelname)-8s %(message)s",
+                "datefmt": "%H:%M:%S"
+            }
+        },
+        "handlers": {
+            "console": {
+                "formatter": "brief",
+                "class": "logging.StreamHandler"
+            },
+            "file": {
+                "formatter": "standard",
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": "backup.log",
+                "maxBytes": 10_000_000,
+                "backupCount": 5
+            }
+        },
+        "loggers": {
+            # Prevent numerous INFO messages from the dropbox package
+            "dropbox": {
+                "level": "WARNING"
+            }
+        },
+        "root": {
+            "level": "INFO",
+            "handlers": ["console", "file"]
+        }
+    }
 
-    # Remove any existing handlers
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
+    try:
+        with open('logging_config.json') as f:
+            logging.config.dictConfig(json.load(f))
 
-    # Create a file handler to log to a file
-    fh = logging.FileHandler(LOGGING_FILENAME)
-    fh.setLevel(level)
-    logger.addHandler(fh)
-
-    # Create a stream handler to log to the terminal
-    sh = logging.StreamHandler()
-    sh.setLevel(level)
-    logger.addHandler(sh)
-
-    fmt = '%(asctime)s %(levelname)-8s %(name)s %(message)s'
-    formatter = logging.Formatter(fmt)
-
-    for handler in logger.handlers:
-        handler.setFormatter(formatter)
-
-    return logger
-
-
-def limit(limit: int):
-    """Decorator to limit number of yielded items."""
-    logger = logging.getLogger('backup.limit')
-    # limit function above is used to take the numberical argument
-    # decorator() is the real decorator
-
-    def decorator(function):
-        @wraps(function)
-        def wrapper(*args, **kwargs):
-            for i, item in enumerate(function(*args, **kwargs)):
-                if i < limit:
-                    yield item
-
-                else:
-                    logger.info(f'Breaking at {i} due to limit={limit}')
-                    break
-
-        return wrapper
-    return decorator
+    except FileNotFoundError:
+        logging.config.dictConfig(DEFAULT_LOGGING)
 
 
 def get_members(team: dropbox.dropbox.DropboxTeam) \
                 -> Iterator[dropbox.team.TeamMemberProfile]:
-    """Generate Dropbox Businesss members.
-
-    This function would not be necessary if the Dropbox Python SDK wasn't so
-    bad.  The Dropbox API should have named the function
-    team_members_list(limit=None) which would be a generator up to the number
-    of team members in limit.
-    """
+    """Generate Dropbox Businesss members."""
     members_list = team.team_members_list()
 
     for member in members_list.members:
@@ -208,10 +193,18 @@ def enqueue(member: dropbox.team.TeamMemberProfile, q: queue.Queue,
             q.put(f)
 
 
-def dequeue(q: queue.Queue, callback: Callable[[File], None]) -> None:
-    """Call callback on each item in queue until q.get() returns None."""
-    for item in iter(q.get, None):
-        callback(item)
+def dequeue(q: queue.Queue, download: Callable[[File], None]) -> None:
+    """Call download on each item in queue until q.get() returns None."""
+    logger = logging.getLogger('backup.dequeue')
+
+    while True:
+        file = q.get()
+
+        if file is None:
+            break
+
+        logger.info(f'{q.qsize()} left in queue.  Downloading {file}')
+        download(file)
 
 
 def get_files(member: dropbox.team.TeamMemberInfo,
@@ -246,17 +239,17 @@ def should_download(file: dropbox.files.Metadata,
     try:
         # Ignore large files
         if file.file.size > 1e6 * args.maxsize:
-            logger.log(5, f'Too large: {file}')
+            logger.debug(f'Too large: {file}')
             return False
 
         # Ignore files modified before given date
         if args.since is not None and args.since > file.file.server_modified:
-            logger.log(5, f'Too old: {file}')
+            logger.debug(f'Too old: {file}')
             return False
 
     except AttributeError:
         # Not a file.  Don't mark to download
-        logger.log(5, f'Not a file: {file}')
+        logger.debug(f'Not a file: {file}')
         return False
 
     # Return all other files
@@ -277,7 +270,7 @@ def download(file: File, team: dropbox.dropbox.DropboxTeam,
 
     # Remove the leading slash from printable_path
     local_path = os.path.join(root, printable_path[1:])
-    logger.info(f'Saving {local_path}')
+    logger.debug(f'Saving {local_path}')
 
     # Create output directory if it does not exist
     try:
@@ -324,15 +317,16 @@ def list_and_save(args: argparse.Namespace) -> None:
                                      _should_download)
 
         # Tell the threads we're done
-        logger.info('Shutting down the consumer threads')
+        logger.debug('Shutting down the consumer threads')
         for _ in range(DOWNLOAD_THREADS):
             file_queue.put(None)
 
 
 def main() -> int:
+    setup_logging()
+    logger = logging.getLogger('backup.main')
     # Parse command line arguments
     args = parse_args()
-    logger = setup_logging(args.loglevel)
 
     try:
         start = time.time()
