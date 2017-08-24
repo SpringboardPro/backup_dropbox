@@ -11,6 +11,7 @@ import json
 import logging
 import logging.config
 import os
+import re
 import string
 import sys
 import time
@@ -19,11 +20,16 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.0'
+__version__ = '2.1.1'
 
 MAX_FILE_SIZE = 100  # Max file size in MB
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
+
+# Characters that are illegal in Windows paths.
+# See https://msdn.microsoft.com/en-us/library/aa365247
+ILLEGAL_PATH_CHARS = r'<>:"|?*'
+ILLEGAL_PATH_PATTERN = re.compile(f'[{re.escape(ILLEGAL_PATH_CHARS)}]')
 
 # Type for mypy generics
 T = TypeVar('T')
@@ -262,14 +268,19 @@ def remove_unprintable(text: str) -> str:
     return ''.join(c for c in text if c in string.printable)
 
 
+def clean_path(path: str) -> str:
+    """Remove illegal characters."""
+    return re.sub(ILLEGAL_PATH_PATTERN, '', path)
+
+
 def download(file: File, team: dropbox.dropbox.DropboxTeam,
              root: str) -> None:
     """Save the file under the root directory given."""
     logger = logging.getLogger('backup.download')
-    printable_path = remove_unprintable(file.file.path_display)
+    path = clean_path(remove_unprintable(file.file.path_display))
 
     # Remove the leading slash from printable_path
-    local_path = os.path.join(root, printable_path[1:])
+    local_path = os.path.join(root, path[1:])
     logger.debug(f'Saving {local_path}')
 
     # Create output directory if it does not exist
@@ -278,7 +289,8 @@ def download(file: File, team: dropbox.dropbox.DropboxTeam,
 
     except FileNotFoundError as ex:
         # FileNotFoundError raised if path is too long
-        logger.error(str(ex))
+        # If this occurs, see https://bugs.python.org/issue27731
+        logger.exception('Path might be too long')
         return
 
     try:

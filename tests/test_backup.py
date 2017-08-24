@@ -1,6 +1,4 @@
 """Unit tests for the backup module."""
-
-import logging
 import unittest
 
 import backup
@@ -33,17 +31,12 @@ class TestRemoveUnprintable(unittest.TestCase):
         self.assertEqual('some text', backup.remove_unprintable(input))
 
 
-class TestLogging(unittest.TestCase):
+class TestCleanPath(unittest.TestCase):
 
-    @unittest.skip(('Normally skipped because it prints output and '
-                    'creates log files'))
-    def test_logging(self):
-        backup.setup_logging(logging.DEBUG)
-        logging.critical('Critical message')
-        logging.error('Error message')
-        logging.warning('Warning message')
-        logging.info('Info message')
-        logging.debug('Debug message')
+    def test_remove_illegal(self):
+        dirty = r'/path/<with/>some:/ill"egal/char|s?/to*remove'
+        expected = r'/path/with/some/illegal/chars/toremove'
+        self.assertEqual(expected, backup.clean_path(dirty))
 
 
 if __name__ == '__main__':
