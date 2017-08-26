@@ -20,9 +20,8 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.1'
+__version__ = '2.1.2'
 
-MAX_FILE_SIZE = 100  # Max file size in MB
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
 
@@ -93,7 +92,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--since', help=msg)
 
     msg = 'select only files up to size in MB inclusive'
-    parser.add_argument('--maxsize', type=int, default=MAX_FILE_SIZE, help=msg)
+    parser.add_argument('--maxsize', type=int, help=msg)
 
     msg = 'path of output directory. Default is "yyyy-mm-dd backup".'
     parser.add_argument('--out', help=msg)
@@ -244,7 +243,7 @@ def should_download(file: dropbox.files.Metadata,
 
     try:
         # Ignore large files
-        if file.file.size > 1e6 * args.maxsize:
+        if args.maxsize is not None and file.file.size > 1e6 * args.maxsize:
             logger.debug(f'Too large: {file}')
             return False
 
@@ -324,7 +323,6 @@ def list_and_save(args: argparse.Namespace) -> None:
         # Start the threads to get file names
         with ThreadPoolExecutor() as producer_exec:
             for member in get_members(team):
-                # Blocks if queue size > MAX_QUEUE_SIZE
                 producer_exec.submit(enqueue, member, file_queue, _get_files,
                                      _should_download)
 
