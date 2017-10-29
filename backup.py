@@ -20,7 +20,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.2'
+__version__ = '2.1.3'
 
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
@@ -70,13 +70,12 @@ class File:
         """Make File hashable for use in sets."""
         return hash(self.file.id)
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Must implement __eq__ if we implement __hash__."""
-        try:
+        if isinstance(other, File):
             return self.file.id == other.file.id
 
-        except AttributeError:
-            return False
+        return NotImplemented
 
     def __repr__(self):
         return self.file.path_display
@@ -206,9 +205,12 @@ def dequeue(q: queue.Queue, download: Callable[[File], None]) -> None:
         file = q.get()
 
         if file is None:
+            logger.info(f'Poison pill found with {q.qsize()} left in queue')
             break
 
-        logger.info(f'{q.qsize()} left in queue.  Downloading {file}')
+        member_name = file.member.profile.name.display_name
+        msg = f'{q.qsize()} left in queue. Downloading {file} as {member_name}'
+        logger.info(msg)
         download(file)
 
 
@@ -267,7 +269,7 @@ def remove_unprintable(text: str) -> str:
     return ''.join(c for c in text if c in string.printable)
 
 
-def clean_path(path: str) -> str:
+def remove_illegal(path: str) -> str:
     """Remove illegal characters."""
     return re.sub(ILLEGAL_PATH_PATTERN, '', path)
 
@@ -276,11 +278,12 @@ def download(file: File, team: dropbox.dropbox.DropboxTeam,
              root: str) -> None:
     """Save the file under the root directory given."""
     logger = logging.getLogger('backup.download')
-    path = clean_path(remove_unprintable(file.file.path_display))
+    path = remove_illegal(remove_unprintable(file.file.path_display))
 
     # Remove the leading slash from printable_path
     local_path = os.path.join(root, path[1:])
-    logger.debug(f'Saving {local_path}')
+    member_name = file.member.profile.name.display_name
+    logger.debug(f'Saving {local_path} as {member_name}')
 
     # Create output directory if it does not exist
     try:
