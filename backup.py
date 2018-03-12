@@ -20,7 +20,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.3'
+__version__ = '2.1.4'
 
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
@@ -61,7 +61,7 @@ class File:
     Class required to make files hashable and track the owning member.
     """
 
-    def __init__(self, file: dropbox.files.ListFolderResult,
+    def __init__(self, file: dropbox.files.Metadata,
                  member: dropbox.team.TeamMemberProfile) -> None:
         self.file = file
         self.member = member
@@ -238,10 +238,13 @@ def get_files(member: dropbox.team.TeamMemberInfo,
     logger.info(f'No more files for {display_name}')
 
 
-def should_download(file: dropbox.files.Metadata,
-                    args: argparse.Namespace) -> bool:
+def should_download(file: File, args: argparse.Namespace) -> bool:
     """Return the True if file passes the filters specified in args."""
     logger = logging.getLogger('backup.should_download')
+
+    # Do not download folders
+    if isinstance(file.file, dropbox.files.FolderMetadata):
+        return False
 
     try:
         # Ignore large files
@@ -256,7 +259,7 @@ def should_download(file: dropbox.files.Metadata,
 
     except AttributeError:
         # Not a file.  Don't mark to download
-        logger.debug(f'Not a file: {file}')
+        logger.error(f'Does not have file attributes: {file}')
         return False
 
     # Return all other files
