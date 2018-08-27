@@ -20,7 +20,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.5'
+__version__ = '2.1.6'
 
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
@@ -303,7 +303,12 @@ def download(file: File, team: dropbox.dropbox.DropboxTeam,
         user.files_download_to_file(local_path, file.file.path_display)
 
     except Exception:
-        logger.exception(f'Exception whilst saving {local_path}')
+        msgs = [f'Exception whilst saving {local_path}',
+                f'Dropbox path is {file.file.path_display}',
+                f'File ID is {file.file.id}',
+                f'User is {file.member.profile.name.display_name}',
+                f'User ID is {file.member.profile.team_member_id}']
+        logger.exception(os.linesep.join(msgs))
 
 
 def list_and_save(args: argparse.Namespace) -> None:
