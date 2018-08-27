@@ -20,7 +20,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.4'
+__version__ = '2.1.5'
 
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
@@ -116,14 +116,14 @@ def parse_args() -> argparse.Namespace:
 
         if args.since > datetime.now():
             msg = '"Since" date must not be later than today.'
-            raise argparse.ArgumentError(msg)
+            parser.error(msg)
 
     if not args.token:
         try:
             args.token = os.environ['DROPBOX_TEAM_TOKEN']
 
         except KeyError:
-            raise argparse.ArgumentError('Dropbox Team token required')
+            parser.error('Dropbox Team token required')
 
     return args
 
@@ -292,7 +292,7 @@ def download(file: File, team: dropbox.dropbox.DropboxTeam,
     try:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
-    except FileNotFoundError as ex:
+    except FileNotFoundError:
         # FileNotFoundError raised if path is too long
         # If this occurs, see https://bugs.python.org/issue27731
         logger.exception('Path might be too long')
