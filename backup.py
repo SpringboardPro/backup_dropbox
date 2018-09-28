@@ -294,15 +294,13 @@ def download(file: File, team: dropbox.dropbox.DropboxTeam,
     try:
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
 
+        user = team.as_user(file.member.profile.team_member_id)
+        user.files_download_to_file(local_path, file.file.path_display)
+
     except FileNotFoundError:
         # FileNotFoundError raised if path is too long
         # If this occurs, see https://bugs.python.org/issue27731
         logger.exception('Path might be too long')
-        return
-
-    try:
-        user = team.as_user(file.member.profile.team_member_id)
-        user.files_download_to_file(local_path, file.file.path_display)
 
     except Exception:
         msgs = [f'Exception whilst saving {local_path}',
