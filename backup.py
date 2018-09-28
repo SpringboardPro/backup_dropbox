@@ -20,7 +20,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.6'
+__version__ = '2.1.7'
 
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
@@ -143,14 +143,16 @@ def setup_logging() -> None:
         "handlers": {
             "console": {
                 "formatter": "brief",
-                "class": "logging.StreamHandler"
+                "class": "logging.StreamHandler",
+                "encoding": "utf-8"
             },
             "file": {
                 "formatter": "standard",
                 "class": "logging.handlers.RotatingFileHandler",
                 "filename": "backup.log",
                 "maxBytes": 10_000_000,
-                "backupCount": 5
+                "backupCount": 5,
+                "encoding": "utf-8"
             }
         },
         "loggers": {
