@@ -143,8 +143,7 @@ def setup_logging() -> None:
         "handlers": {
             "console": {
                 "formatter": "brief",
-                "class": "logging.StreamHandler",
-                "encoding": "utf-8"
+                "class": "logging.StreamHandler"
             },
             "file": {
                 "formatter": "standard",
