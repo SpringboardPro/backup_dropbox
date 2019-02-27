@@ -20,7 +20,7 @@ import queue
 
 import dropbox  # type: ignore
 
-__version__ = '2.1.7'
+__version__ = '2.1.8'
 
 DOWNLOAD_THREADS = 8
 MAX_QUEUE_SIZE = 100_000
@@ -40,13 +40,13 @@ class SetQueue(queue.Queue, Generic[T]):
     Objects are considered identical if hash(object) are identical.
     """
 
-    def __init__(self, maxsize: int=0) -> None:
+    def __init__(self, maxsize: int = 0) -> None:
         """Initialise queue with maximum number of items.
 
         0 for infinite queue
         """
         super().__init__(maxsize)
-        self.all_items = set()  # type: Set[T]
+        self.all_items: Set[T] = set()
 
     def _put(self, item: T) -> None:
         #  Allow multiple Nones to be queued to act as sentinels
@@ -301,6 +301,15 @@ def download(file: File, team: dropbox.dropbox.DropboxTeam,
         # If this occurs, see https://bugs.python.org/issue27731
         logger.exception('Path might be too long')
 
+    except dropbox.exceptions.ApiError as ex:
+        if ex.user_message_text:
+            logger.error('API error message: ' + ex.user_message_text)
+
+        else:
+            fmt = '{} for {} as {}'
+            logger.error(fmt.format(ex.error, file.file.path_display,
+                         file.member.profile.name.display_name))
+
     except Exception:
         msgs = [f'Exception whilst saving {local_path}',
                 f'Dropbox path is {file.file.path_display}',
@@ -360,7 +369,7 @@ def main() -> int:
         return 1
 
     # Report all other exceptions
-    except:
+    except Exception:
         logger.exception(f'Uncaught exception at {time.time() - start:.2f} s')
         return -1
 
