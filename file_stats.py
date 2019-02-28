@@ -1,4 +1,4 @@
-from heapq import heappush, heappushpop, heappop
+from heapq import heappush, heappushpop
 import os
 from pathlib import Path
 import sys
@@ -41,21 +41,22 @@ def main():
 
 
 def heap_to_max(heap, item, max_size=N_LARGEST):
-        if len(heap) >= max_size:
-            heappushpop(heap, item)
+    """Add item to heap.
 
-        else:
-            heappush(heap, item)
+    If then heap > N_LARGEST, pop the smallest item off the heap
+    """
+    if len(heap) >= max_size:
+        heappushpop(heap, item)
+
+    else:
+        heappush(heap, item)
 
 
-def print_heap(heap, fmt='{0[0]:<8} {0[1]}'):
-    while True:
-        try:
-            item = heappop(heap)
-            print(fmt.format(item))
-                
-        except IndexError:
-            break
+def print_heap(heap, fmt='{0[0]:<8} {0[1]}', ascending=False):
+    sorted_list = sorted(heap, reverse=not ascending)
+
+    for item in sorted_list:
+        print(fmt.format(item))
 
 
 if __name__ == "__main__":
