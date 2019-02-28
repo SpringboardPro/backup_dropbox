@@ -150,7 +150,7 @@ def setup_logging() -> None:
                 "class": "logging.handlers.RotatingFileHandler",
                 "filename": "backup.log",
                 "maxBytes": 10_000_000,
-                "backupCount": 5,
+                "backupCount": 20,
                 "encoding": "utf-8"
             }
         },
