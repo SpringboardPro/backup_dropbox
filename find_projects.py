@@ -26,15 +26,13 @@ def main():
 
     proj_reg_path = dbx_folder / reports_folders[0] / 'Project register.xlsm'
     projects = pd.read_excel(proj_reg_path)
-    # print(projects)
+    projects.dropna(inplace=True)
 
     client_projects = projects[projects['Client'] != 'Springboard']
 
     client_folders = client_projects['Client'] + ' - ' + \
         client_projects['Project name'] + '.' + \
         client_projects['Code']
-
-    # print(client_folders)
 
     paths: List[str] = []
 
