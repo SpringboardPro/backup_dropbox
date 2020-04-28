@@ -36,7 +36,7 @@ def main():
         sys.exit(2)
 
     proj_reg_path = dbx_folder / reports_folders[0] / 'Project register.xlsm'
-    projects = pd.read_excel(proj_reg_path)
+    projects = pd.read_excel(proj_reg_path, usecols=list(range(4)))
     projects.dropna(inplace=True)
 
     client_projects = projects[projects['Client'] != 'Springboard']
