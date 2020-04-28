@@ -1,5 +1,6 @@
 """Find projects which have not been backed up."""
 
+from contextlib import contextmanager
 from glob import glob
 import os
 from pathlib import Path
@@ -9,11 +10,21 @@ from typing import List
 import pandas as pd
 
 
+@contextmanager
+def chdir(path):
+    """Context manager to change directory, then change back again on exit."""
+    cwd = os.getcwd()
+    os.chdir(path)
+    yield
+    os.chdir(cwd)
+
+
 def main():
     dbx_folder = Path.home() / 'Dropbox (Springboard)'
-    os.chdir(dbx_folder)
-    reports_folders = glob(f'**{os.sep}Project reports{os.sep}',
-                           recursive=True)
+
+    with chdir(dbx_folder):
+        reports_folders = glob(f'**{os.sep}Project reports{os.sep}',
+                               recursive=True)
 
     if not reports_folders:
         print('ERROR: No project reports folder found')
@@ -36,16 +47,22 @@ def main():
 
     paths: List[str] = []
 
-    if len(sys.argv) == 1:
-        print('No target folder given.  Using local Dropbox folder.')
+    if len(sys.argv) < 2:
         target = dbx_folder
+        print('No target folder given.  Using local Dropbox folder.')
 
     else:
         target = sys.argv[1]
 
+        if not Path(target).is_dir():
+            print(target, 'is not a folder', file=sys.stderr)
+            sys.exit(1)
+
+        print('Searching', target)
+
     for root, dirs, files in os.walk(target):
-        for name in dirs:
-            paths.append(os.path.join(root, name))
+        for dir_ in dirs:
+            paths.append(os.path.join(root, dir_))
 
     not_found: List[str] = []
 
