@@ -9,6 +9,10 @@ import dropbox
 from backup import File, setup_logging, get_members, get_files
 
 
+HIDE_OWNERS = ['Office Administrator']
+"""Names of shared folder owners that we do not need to see."""
+
+
 def get_folder_members(team: dropbox.DropboxTeam,
                        folder: File) \
                        -> Iterator[dropbox.sharing.UserMembershipInfo]:
@@ -60,7 +64,13 @@ def main():
             logger.debug(f'{path} : {name} : {member.access_type}')
 
             if member.access_type.is_owner():
-                logger.info(f'{path} is owned by {name}')
+                msg = f'{path} is owned by {name}'
+                if name not in HIDE_OWNERS:
+                    logger.info(msg)
+
+                else:
+                    logger.debug(msg)
+
                 break
 
         else:
