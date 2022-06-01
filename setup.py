@@ -50,7 +50,7 @@ setup(
     long_description=long_description,
 
     # The project's main homepage.
-    url='https://github.com/blokeley/backup_dropbox/',
+    url='https://github.com/SpringboardPro/backup_dropbox/',
 
     # Author details
     author='blokeley',
