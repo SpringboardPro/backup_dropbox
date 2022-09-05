@@ -174,7 +174,7 @@ def setup_logging() -> None:
         logging.config.dictConfig(DEFAULT_LOGGING)
 
 
-def get_members(team: dropbox.dropbox.DropboxTeam) \
+def get_members(team: dropbox.dropbox_client.DropboxTeam) \
                 -> Iterator[dropbox.team.TeamMemberProfile]:
     """Generate Dropbox Businesss members."""
     members_list = team.team_members_list()
@@ -216,7 +216,7 @@ def dequeue(q: queue.Queue, download: Callable[[File], None]) -> None:
 
 
 def get_files(member: dropbox.team.TeamMemberInfo,
-              team: dropbox.DropboxTeam) -> Iterator[File]:
+              team: dropbox.dropbox_client.DropboxTeam) -> Iterator[File]:
     """Generate files for the given member."""
     logger = logging.getLogger('backup.get_files')
     display_name = member.profile.name.display_name
@@ -278,7 +278,7 @@ def remove_illegal(path: str) -> str:
     return re.sub(ILLEGAL_PATH_PATTERN, '', path)
 
 
-def download(file: File, team: dropbox.dropbox.DropboxTeam,
+def download(file: File, team: dropbox.dropbox_client.DropboxTeam,
              root: str) -> None:
     """Save the file under the root directory given."""
     logger = logging.getLogger('backup.download')
@@ -324,7 +324,7 @@ def list_and_save(args: argparse.Namespace) -> None:
     logger = logging.getLogger('backup.list_and_save')
     logger.info(f'{__file__} version {__version__}')
 
-    team = dropbox.DropboxTeam(args.token)
+    team = dropbox.dropbox_client.DropboxTeam(args.token)
 
     # Sycnhonised Queue of File objects to download
     file_queue = SetQueue[File](MAX_QUEUE_SIZE)
